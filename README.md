@@ -34,3 +34,18 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+# Setup for building a Chrome extension with Next.js static export
+
+Commands:
+
+- npm run dev — run Next.js dev server (not used for extension packaging)
+- npm run build:export — build and export static files to out/, then copy to dist/ for the extension
+
+Packaging:
+- After running npm run build:export the extension ready files are in the dist/ folder. In Chrome go to chrome://extensions, enable Developer mode, Load unpacked and choose the dist/ folder.
+
+Notes:
+- The popup page is at dist/popup/index.html
+- background.js and content.js are copied from public/
+- Adjust manifest.json if you need different permissions or scripts

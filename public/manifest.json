@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "NextJS Extension",
+  "version": "0.1.0",
+  "description": "A simple Chrome extension built with Next.js",
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_icon": {
+      "16": "file.svg",
+      "48": "globe.svg",
+      "128": "next.svg"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "icons": {
+    "16": "file.svg",
+    "48": "globe.svg",
+    "128": "next.svg"
+  }
+}
