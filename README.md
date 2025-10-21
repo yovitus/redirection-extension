@@ -71,8 +71,7 @@ This will:
 
 1. Click the extension icon in your Chrome toolbar
 2. You'll see "Jesus is watching you" message
-3. Click **"Get Today's Bible Verse"** button
-4. The daily Bible verse from BibleGateway will be displayed
+3. Click the button and get a verse
 
 ## Development
 

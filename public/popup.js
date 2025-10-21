@@ -6,6 +6,7 @@ document.getElementById('fetch-verse').addEventListener('click', async () => {
   const errorDiv = document.getElementById('error');
 
   // Reset UI
+  const originalButtonText = button.textContent;
   button.disabled = true;
   button.textContent = 'Loading...';
   verseContainer.style.display = 'none';
@@ -14,7 +15,7 @@ document.getElementById('fetch-verse').addEventListener('click', async () => {
   try {
     // Send message to background script to fetch the verse
     const response = await chrome.runtime.sendMessage({ action: 'fetchVerse' });
-    
+
     if (response.success) {
       verseText.textContent = response.verse;
       verseReference.textContent = response.reference;
@@ -28,6 +29,6 @@ document.getElementById('fetch-verse').addEventListener('click', async () => {
     errorDiv.style.display = 'block';
   } finally {
     button.disabled = false;
-    button.textContent = 'Get Today\'s Bible Verse';
+    button.textContent = originalButtonText;
   }
 });

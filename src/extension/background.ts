@@ -6,7 +6,6 @@ self.addEventListener('activate', () => {
   console.log('Service worker activated (TS)');
 });
 
-// Listen for messages from popup
 (self as any).chrome.runtime.onMessage.addListener((request: any, sender: any, sendResponse: any) => {
   if (request.action === 'fetchVerse') {
     fetchBibleVerse()
@@ -15,66 +14,113 @@ self.addEventListener('activate', () => {
         success: false, 
         error: error.message 
       }));
-    return true; // Keep the message channel open for async response
+    return true; 
   }
 });
 
 async function fetchBibleVerse(): Promise<{ success: boolean; verse?: string; reference?: string; error?: string }> {
   try {
-    // Fetch the BibleGateway page
-    const response = await fetch('https://www.biblegateway.com/');
-    
+    const bibleMetadata: Record<string, number> = {
+      "Genesis": 50,
+      "Exodus": 40,
+      "Leviticus": 27,
+      "Numbers": 36,
+      "Deuteronomy": 34,
+      "Joshua": 24,
+      "Judges": 21,
+      "Ruth": 4,
+      "1 Samuel": 31,
+      "2 Samuel": 24,
+      "1 Kings": 22,
+      "2 Kings": 25,
+      "1 Chronicles": 29,
+      "2 Chronicles": 36,
+      "Ezra": 10,
+      "Nehemiah": 13,
+      "Esther": 10,
+      "Job": 42,
+      "Psalms": 150,
+      "Proverbs": 31,
+      "Ecclesiastes": 12,
+      "Song of Solomon": 8,
+      "Isaiah": 66,
+      "Jeremiah": 52,
+      "Lamentations": 5,
+      "Ezekiel": 48,
+      "Daniel": 12,
+      "Hosea": 14,
+      "Joel": 3,
+      "Amos": 9,
+      "Obadiah": 1,
+      "Jonah": 4,
+      "Micah": 7,
+      "Nahum": 3,
+      "Habakkuk": 3,
+      "Zephaniah": 3,
+      "Haggai": 2,
+      "Zechariah": 14,
+      "Malachi": 4,
+      "Matthew": 28,
+      "Mark": 16,
+      "Luke": 24,
+      "John": 21,
+      "Acts": 28,
+      "Romans": 16,
+      "1 Corinthians": 16,
+      "2 Corinthians": 13,
+      "Galatians": 6,
+      "Ephesians": 6,
+      "Philippians": 4,
+      "Colossians": 4,
+      "1 Thessalonians": 5,
+      "2 Thessalonians": 3,
+      "1 Timothy": 6,
+      "2 Timothy": 4,
+      "Titus": 3,
+      "Philemon": 1,
+      "Hebrews": 13,
+      "James": 5,
+      "1 Peter": 5,
+      "2 Peter": 3,
+      "1 John": 5,
+      "2 John": 1,
+      "3 John": 1,
+      "Jude": 1,
+      "Revelation": 22
+    };
+
+    // Select a random book
+    const books = Object.keys(bibleMetadata);
+    const randomBook = books[Math.floor(Math.random() * books.length)] as keyof typeof bibleMetadata;
+
+    // Select a random chapter
+    const maxChapters = bibleMetadata[randomBook];
+    const randomChapter = Math.floor(Math.random() * maxChapters) + 1;
+
+    // Fetch the first verse of the random chapter
+    const response = await fetch(`https://bible-api.com/${randomBook}+${randomChapter}:1`);
     if (!response.ok) {
-      throw new Error('Failed to fetch from BibleGateway');
+      const errorText = await response.text();
+      console.error(`Failed to fetch from Bible API. Status: ${response.status}, Response: ${errorText}`);
+      throw new Error("Failed to fetch from Bible API");
     }
 
-    const html = await response.text();
-    
-    // Parse the HTML to extract verse of the day
-    // BibleGateway uses specific classes for the verse of the day
-    const verseMatch = html.match(/<div class="votd-box">[\s\S]*?<a[^>]*>(.*?)<\/a>[\s\S]*?<\/div>/);
-    const textMatch = html.match(/<p class="votd-text"[^>]*>(.*?)<\/p>/);
-    
-    if (textMatch && verseMatch) {
-      // Clean up HTML tags and decode entities
-      const verse = textMatch[1]
-        .replace(/<[^>]+>/g, '')
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&#8217;/g, "'")
-        .replace(/&#8220;/g, '"')
-        .replace(/&#8221;/g, '"')
-        .trim();
-      
-      const reference = verseMatch[1]
-        .replace(/<[^>]+>/g, '')
-        .trim();
+    const data = await response.json();
 
-      return {
-        success: true,
-        verse: verse,
-        reference: reference
-      };
-    }
-    
-    // Alternative parsing method if the first one fails
-    const votdMatch = html.match(/<div class="bible-verse-text"[^>]*>(.*?)<\/div>[\s\S]*?<a[^>]*class="verse-link"[^>]*>(.*?)<\/a>/);
-    if (votdMatch) {
-      return {
-        success: true,
-        verse: votdMatch[1].replace(/<[^>]+>/g, '').trim(),
-        reference: votdMatch[2].replace(/<[^>]+>/g, '').trim()
-      };
-    }
+    const bookName = data.book_name || randomBook;
+    const chapter = data.chapter || randomChapter;
+    const verse = data.verse || 1;
 
-    throw new Error('Could not parse verse from page');
+    return {
+      success: true,
+      verse: data.text,
+      reference: `${bookName} ${chapter}:${verse}`,
+    };
   } catch (error) {
     console.error('Error fetching Bible verse:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
 }
