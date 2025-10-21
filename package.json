@@ -3,11 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
-    "start": "next start",
     "build:ts": "esbuild src/extension/background.ts --bundle --platform=browser --outfile=public/background.js && esbuild src/extension/content.ts --bundle --platform=browser --outfile=public/content.js",
-    "build:export": "npm run build:ts && next build && sh ./scripts/copy-static.sh"
+    "build": "npm run build:ts && sh ./scripts/copy-static.sh"
   },
   "dependencies": {
     "next": "15.5.6",
