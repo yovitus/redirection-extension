@@ -1,19 +1,13 @@
 #!/usr/bin/env bash
-# Copy Next.js export files to a dist/ folder structured for Chrome extension
+# Copy extension files to dist/ folder for Chrome extension
 set -e
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="$ROOT_DIR/out"
 DIST_DIR="$ROOT_DIR/dist"
-
-if [ ! -d "$OUT_DIR" ]; then
-  echo "Export folder 'out' not found. Run 'npm run build' first."
-  exit 1
-fi
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
-# copy manifest from project root (per guide)
+# copy manifest from project root
 if [ -f "$ROOT_DIR/manifest.json" ]; then
   cp -R "$ROOT_DIR/manifest.json" "$DIST_DIR/"
   echo "Using manifest from project root"
@@ -25,28 +19,17 @@ fi
 cp -R "$ROOT_DIR/public/background.js" "$DIST_DIR/"
 cp -R "$ROOT_DIR/public/content.js" "$DIST_DIR/"
 
-# copy simple HTML popup
+# copy popup HTML and script
 cp -R "$ROOT_DIR/public/popup.html" "$DIST_DIR/"
-echo "Copied popup.html"
+cp -R "$ROOT_DIR/public/popup.js" "$DIST_DIR/"
+echo "Copied popup files"
 
-# copy static export (for any additional pages if needed)
-cp -R "$OUT_DIR/"* "$DIST_DIR/"
-
-# Remove the Next.js popup directory since we use simple popup.html
-if [ -d "$DIST_DIR/popup" ]; then
-  rm -rf "$DIST_DIR/popup"
-  echo "Removed Next.js popup directory (using popup.html instead)"
-fi
-
-# Chrome extensions can't have folders starting with "_"
-# Rename _next to next
-if [ -d "$DIST_DIR/_next" ]; then
-  mv "$DIST_DIR/_next" "$DIST_DIR/next"
-  echo "Renamed _next to next (Chrome extension requirement)"
-  
-  # Update all references from /_next/ to /next/ in HTML files
-  find "$DIST_DIR" -name "*.html" -type f -exec sed -i '' 's|/_next/|/next/|g' {} +
-  echo "Updated HTML references from /_next/ to /next/"
+# copy icons directory
+if [ -d "$ROOT_DIR/public/icons" ]; then
+  cp -R "$ROOT_DIR/public/icons" "$DIST_DIR/"
+  echo "Icons copied to dist/icons"
+else
+  echo "Warning: icons directory not found"
 fi
 
 echo "Dist prepared at $DIST_DIR"

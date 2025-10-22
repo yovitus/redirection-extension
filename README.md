@@ -1,51 +1,172 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Chrome Extension with TypeScript
+
+A simple Chrome extension that displays "Jesus is watching you" and fetches the daily Bible verse from BibleGateway.
+
+## Features
+
+- 📖 Fetch today's Bible verse from BibleGateway
+- 👀 Clean popup interface
+- 🔧 Built with TypeScript
+- 🚀 Simple build process
+
+## Project Structure
+
+```
+extension/
+├── manifest.json           # Chrome extension manifest
+├── src/
+│   └── extension/
+│       ├── background.ts   # Background service worker (TypeScript source)
+│       └── content.ts      # Content script (TypeScript source)
+├── public/
+│   ├── icons/              # Extension icons (16x16, 48x48, 128x128)
+│   ├── popup.html          # Popup UI
+│   ├── popup.js            # Popup logic
+│   ├── background.js       # Generated from background.ts (gitignored)
+│   └── content.js          # Generated from content.ts (gitignored)
+├── scripts/
+│   └── copy-static.sh      # Build script to create dist/
+└── dist/                   # Final extension build (gitignored)
+```
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js (v18 or higher)
+- npm
+- Chrome or Chromium-based browser
+
+### Installation
+
+1. Clone the repository:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <your-repo-url>
+cd extension
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Build the extension:
+```bash
+npm run build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+This will:
+- Compile TypeScript files (`src/extension/*.ts`) to JavaScript (`public/*.js`)
+- Copy all necessary files to the `dist/` folder
 
-## Learn More
+### Loading the Extension in Chrome
 
-To learn more about Next.js, take a look at the following resources:
+1. Open Chrome and navigate to `chrome://extensions/`
+2. Enable **Developer mode** (toggle in top-right corner)
+3. Click **"Load unpacked"**
+4. Select the `dist/` folder from this project
+5. The extension should now appear in your toolbar!
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Using the Extension
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Click the extension icon in your Chrome toolbar
+2. You'll see "Jesus is watching you" message
+3. Click the button and get a verse
 
-## Deploy on Vercel
+## Development
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### File Organization
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Edit TypeScript source files**: `src/extension/background.ts` and `src/extension/content.ts`
+- **Edit popup UI**: `public/popup.html` and `public/popup.js`
+- **Don't edit**: `public/background.js` and `public/content.js` (these are auto-generated)
 
-# Setup for building a Chrome extension with Next.js static export
+### Build Commands
 
-Commands:
+```bash
+# Build TypeScript and create dist/
+npm run build
 
-- npm run dev — run Next.js dev server (not used for extension packaging)
-- npm run build:export — build and export static files to out/, then copy to dist/ for the extension
+# Build TypeScript only (generates public/*.js)
+npm run build:ts
+```
 
-Packaging:
-- After running npm run build:export the extension ready files are in the dist/ folder. In Chrome go to chrome://extensions, enable Developer mode, Load unpacked and choose the dist/ folder.
+### Development Workflow
 
-Notes:
-- The popup page is at dist/popup/index.html
-- background.js and content.js are copied from public/
-- Adjust manifest.json if you need different permissions or scripts
+1. Make changes to your source files
+2. Run `npm run build`
+3. Go to `chrome://extensions/`
+4. Click the **reload icon** on your extension
+5. Test your changes
+
+## How It Works
+
+### Background Script (`background.ts`)
+- Runs as a service worker in the background
+- Listens for messages from the popup
+- Fetches the Bible verse from BibleGateway when requested
+- Handles scraping and parsing of the verse
+
+### Content Script (`content.ts`)
+- Injected into web pages matching `<all_urls>`
+- Currently logs to console (can be extended for page interaction)
+
+### Popup (`popup.html` + `popup.js`)
+- Simple HTML interface with a button
+- Sends message to background script when button is clicked
+- Displays the fetched verse or error message
+
+## Manifest Permissions
+
+The extension requires:
+- `storage` - For future data storage
+- `activeTab` - To interact with the current tab
+- `scripting` - For content script injection
+- `host_permissions: ["<all_urls>"]` - To fetch from BibleGateway
+
+## Customization
+
+### Change the Popup Message
+Edit `public/popup.html` - modify the `<h1>` tag
+
+### Modify Bible Verse Fetching
+Edit `src/extension/background.ts` - modify the `fetchBibleVerse()` function
+
+### Add New Functionality
+1. Edit TypeScript files in `src/extension/`
+2. Run `npm run build`
+3. Reload extension in Chrome
+
+## Troubleshooting
+
+### Extension won't load
+- Make sure you've run `npm run build` first
+- Check that `dist/` folder exists and contains files
+- Verify manifest.json has no syntax errors
+
+### Bible verse not fetching
+- Check browser console for errors (F12 → Console)
+- BibleGateway might have changed their HTML structure
+- Check background script logs in `chrome://extensions/` → Inspect background page
+
+### Changes not appearing
+- Always run `npm run build` after making changes
+- Click reload icon on extension in `chrome://extensions/`
+- Hard refresh popup (close and reopen)
+
+## Git Workflow
+
+The following files are gitignored (auto-generated):
+- `dist/` - Final build output
+- `public/background.js` - Generated from TypeScript
+- `public/content.js` - Generated from TypeScript
+
+When someone clones your repo, they need to run:
+```bash
+npm install
+npm run build
+```
+
+## License
+
+This project is open source and available under the MIT License.
