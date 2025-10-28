@@ -48,6 +48,7 @@ cd extension
 2. Install dependencies:
 ```bash
 npm install
+npm install --save-dev shelljs
 ```
 
 3. Build the extension:
