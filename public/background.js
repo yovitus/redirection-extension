@@ -25,11 +25,35 @@
   });
   async function fetchZeeguuLanguages() {
     try {
+      try {
+        const sysResponse = await fetch("https://zeeguu.org/system_languages");
+        if (sysResponse.ok) {
+          const sysData = await sysResponse.json();
+          if (sysData.learnable_languages && Array.isArray(sysData.learnable_languages)) {
+            return {
+              success: true,
+              languages: sysData.learnable_languages
+            };
+          }
+        }
+      } catch (e) {
+        console.log("system_languages endpoint not available, trying fallback");
+      }
       const response = await fetch("https://zeeguu.org/available_languages");
       if (!response.ok) {
         throw new Error(`Failed to fetch from Zeeguu API. Status: ${response.status}`);
       }
-      const languageCodes = await response.json();
+      const text = await response.text();
+      let languageCodes;
+      try {
+        languageCodes = JSON.parse(text);
+      } catch {
+        console.error("Response was not valid JSON:", text.substring(0, 100));
+        throw new Error("API returned invalid data (possibly HTML). Using fallback languages.");
+      }
+      if (!Array.isArray(languageCodes)) {
+        throw new Error("Invalid response format from API");
+      }
       const languageNames = {
         "de": "German",
         "es": "Spanish",
@@ -42,7 +66,13 @@
         "ja": "Japanese",
         "zh": "Chinese",
         "no": "Norwegian",
-        "ro": "Romanian"
+        "ro": "Romanian",
+        "pl": "Polish",
+        "sv": "Swedish",
+        "da": "Danish",
+        "hu": "Hungarian",
+        "uk": "Ukrainian",
+        "el": "Greek"
       };
       const languages = languageCodes.map((code) => ({
         code,
@@ -54,9 +84,23 @@
       };
     } catch (error) {
       console.error("Error fetching Zeeguu languages:", error);
+      const fallbackLanguages = [
+        { code: "de", name: "German" },
+        { code: "es", name: "Spanish" },
+        { code: "fr", name: "French" },
+        { code: "en", name: "English" },
+        { code: "nl", name: "Dutch" },
+        { code: "it", name: "Italian" },
+        { code: "pt", name: "Portuguese" },
+        { code: "ru", name: "Russian" },
+        { code: "no", name: "Norwegian" },
+        { code: "pl", name: "Polish" },
+        { code: "sv", name: "Swedish" },
+        { code: "da", name: "Danish" }
+      ];
       return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error"
+        success: true,
+        languages: fallbackLanguages
       };
     }
   }
