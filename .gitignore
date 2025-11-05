@@ -24,3 +24,9 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# Backup/duplicate files (from VS Code sync or file duplication)
+*[0-9].js
+*[0-9].html
+*[0-9].json
+*[0-9]/
