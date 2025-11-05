@@ -3,53 +3,96 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Extension Popup</title>
+  <title>Zeeguu - Language Learning</title>
   <style>
-    body {
-      width: 350px;
-      padding: 32px;
+    * {
       margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      width: 400px;
+      padding: 20px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #333;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      padding: 24px;
     }
     h1 {
-      font-size: 24px;
+      font-size: 28px;
       font-weight: bold;
       text-align: center;
-      margin: 0 0 20px 0;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
-    button {
-      width: 100%;
-      padding: 12px;
-      background-color: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 16px;
-      cursor: pointer;
-      margin-bottom: 16px;
+    .subtitle {
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 20px;
     }
-    button:hover {
-      background-color: #45a049;
+    #languages-view {
+      display: block;
     }
-    button:disabled {
-      background-color: #cccccc;
-      cursor: not-allowed;
-    }
-    #verse-container {
-      margin-top: 16px;
-      padding: 16px;
-      background-color: #f5f5f5;
-      border-radius: 4px;
+    #languages-view.hidden {
       display: none;
     }
-    #verse-text {
-      font-style: italic;
-      margin-bottom: 8px;
-      line-height: 1.5;
+    #language-detail {
+      display: none;
     }
-    #verse-reference {
-      font-weight: bold;
-      color: #4CAF50;
+    #language-detail.active {
+      display: block;
+    }
+    .languages-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .language-btn {
+      padding: 16px 12px;
+      background: #f5f5f5;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      text-align: center;
+      transition: all 0.2s ease;
+    }
+    .language-btn:hover {
+      background: #efefef;
+      border-color: #667eea;
+      color: #667eea;
+    }
+    .language-btn:active {
+      transform: scale(0.98);
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #999;
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
     .error {
       color: #d32f2f;
@@ -57,17 +100,102 @@
       background-color: #ffebee;
       border-radius: 4px;
       display: none;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    .detail-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .back-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      margin-right: 12px;
+      color: #667eea;
+    }
+    .detail-header h2 {
+      font-size: 22px;
+      margin: 0;
+    }
+    .tips-list {
+      background: #f5f5f5;
+      border-left: 4px solid #667eea;
+      padding: 16px;
+      border-radius: 4px;
+    }
+    .tips-list h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #667eea;
+    }
+    .tips-list ul {
+      list-style: none;
+      padding: 0;
+    }
+    .tips-list li {
+      padding: 8px 0;
+      color: #666;
+      font-size: 14px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .tips-list li:last-child {
+      border-bottom: none;
+    }
+    .tips-list li:before {
+      content: "✓ ";
+      color: #667eea;
+      font-weight: bold;
+      margin-right: 8px;
+    }
+    .action-btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 16px;
+      transition: all 0.2s ease;
+    }
+    .action-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
     }
   </style>
 </head>
 <body>
-  <h1>Jesus is watching you</h1>
-  <button id="fetch-verse">✝ Get a bible verse ✝</button>
-  <div id="verse-container">
-    <div id="verse-text"></div>
-    <div id="verse-reference"></div>
+  <div class="container">
+    <h1>🌍 Zeeguu</h1>
+    <p class="subtitle">Learn a language instantly</p>
+    <div id="error" class="error"></div>
+
+    <div id="languages-view">
+      <div class="loading" id="loading-spinner" style="display: none;">
+        <div class="spinner"></div>
+        <p style="margin-top: 12px;">Loading languages...</p>
+      </div>
+      <div class="languages-grid" id="languages-grid"></div>
+    </div>
+
+    <div id="language-detail">
+      <div class="detail-header">
+        <button class="back-btn" id="back-btn">←</button>
+        <h2 id="detail-title"></h2>
+      </div>
+      <div class="tips-list">
+        <h3>Learning Tips:</h3>
+        <ul id="tips-list"></ul>
+      </div>
+      <button class="action-btn" id="start-learning-btn">Start Learning</button>
+    </div>
   </div>
-  <div id="error" class="error"></div>
 
   <script src="popup.js"></script>
 </body>
