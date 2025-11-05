@@ -4,7 +4,7 @@
   "description": "Browser extension for learning languages with Zeeguu",
   "private": true,
   "scripts": {
-    "build": "sh ./scripts/copy-static.sh"
+    "build": "node ./scripts/copy-static.js"
   },
   "devDependencies": {
     "typescript": "^5",
