@@ -1,3 +1,16 @@
+/**
+ * background.ts - Service Worker (Backend)
+ * 
+ * Role: The backend orchestrator of the extension
+ * Responsibilities:
+ * - Listens for messages from popup/content (runtime.onMessage)
+ * - Handles all network requests: fetches languages, articles, login, session management
+ * - Stores session in chrome.storage.local
+ * - Returns demo articles when no session exists
+ * 
+ * Flow: popup.ts sends messages → background.ts processes → sends response back
+ */
+
 self.addEventListener('install', () => {
   console.log('Service worker installed (TS)');
 });

@@ -1,3 +1,19 @@
+/**
+ * popup.ts - UI Router (Frontend Orchestrator)
+ * 
+ * Role: Main controller for the extension's popup interface
+ * Responsibilities:
+ * - Imports and wires up 5 view classes (WelcomeView, LoginView, LanguagesView, ArticlesView, ArticleReaderView)
+ * - Manages global state (currentSession, currentEmail, selectedLanguage, isDemoMode)
+ * - Routes between views (Welcome → Login → Languages → Articles → ArticleReader)
+ * - Sends messages to background.ts for all data/API needs
+ * - Handles user interactions and updates views based on responses
+ * 
+ * Architecture:
+ * User clicks button → popup.ts handler fires → sends message to background.ts
+ *   → background.ts returns data → popup.ts calls view.render() → View updates DOM
+ */
+
 import { WelcomeView } from './views/WelcomeView';
 import { LoginView } from './views/LoginView';
 import { LanguagesView } from './views/LanguagesView';
