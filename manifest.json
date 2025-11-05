@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Holy Extension",
+  "name": "Zeeguu Learning",
   "version": "0.1.0",
-  "description": "God is always with you",
+  "description": "Learn languages with Zeeguu directly in your browser",
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -14,10 +14,10 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],
   "content_security_policy": {
-    "extension_pages": "connect-src 'self' https://bible-api.com; script-src 'self'; object-src 'self'"
+    "extension_pages": "connect-src 'self' https://zeeguu.org https://api.zeeguu.org https://zeeguu.unibe.ch https://api.zeeguu.unibe.ch; script-src 'self'; object-src 'self'"
   },
   "content_scripts": [
     {

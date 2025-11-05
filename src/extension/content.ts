@@ -1,3 +1,19 @@
+/**
+ * content.ts - Content Script
+ * 
+ * Role: Runs on web pages (currently minimal)
+ * Current Use: Placeholder for future enhancements
+ * 
+ * Future Possibilities:
+ * - Inject UI into Zeeguu articles
+ * - Highlight words and provide translations
+ * - Track reading progress
+ * - Provide word lookup on selected text
+ * 
+ * Note: Content scripts run in the context of web pages and have access to page DOM,
+ * but currently this extension focuses on the popup interface.
+ */
+
 // content script. This file is the single source of truth for page-level behavior.
 
 console.log('Content script running (TS)');

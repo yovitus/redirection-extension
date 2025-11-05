@@ -1,23 +1,14 @@
 {
-  "name": "extension",
+  "name": "zeeguu-extension",
   "version": "0.1.0",
+  "description": "Browser extension for learning languages with Zeeguu",
   "private": true,
   "scripts": {
-    "build:ts": "esbuild src/extension/background.ts --bundle --platform=browser --outfile=public/background.js && esbuild src/extension/content.ts --bundle --platform=browser --outfile=public/content.js",
-    "build": "npm run build:ts && sh ./scripts/copy-static.sh"
-  },
-  "dependencies": {
-    "next": "15.5.6",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "build": "sh ./scripts/copy-static.sh"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
     "typescript": "^5",
-    "esbuild": "^0.18.17"
+    "esbuild": "^0.18.17",
+    "@types/chrome": "^0.0.246"
   }
 }

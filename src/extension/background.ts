@@ -1,3 +1,16 @@
+/**
+ * background.ts - Service Worker (Backend)
+ * 
+ * Role: The backend orchestrator of the extension
+ * Responsibilities:
+ * - Listens for messages from popup/content (runtime.onMessage)
+ * - Handles all network requests: fetches languages, articles, login, session management
+ * - Stores session in chrome.storage.local
+ * - Returns demo articles when no session exists
+ * 
+ * Flow: popup.ts sends messages → background.ts processes → sends response back
+ */
+
 self.addEventListener('install', () => {
   console.log('Service worker installed (TS)');
 });
@@ -7,8 +20,8 @@ self.addEventListener('activate', () => {
 });
 
 (self as any).chrome.runtime.onMessage.addListener((request: any, sender: any, sendResponse: any) => {
-  if (request.action === 'fetchVerse') {
-    fetchBibleVerse()
+  if (request.action === 'fetchLanguages') {
+    fetchZeeguuLanguages()
       .then(data => sendResponse(data))
       .catch(error => sendResponse({ 
         success: false, 
@@ -16,111 +29,395 @@ self.addEventListener('activate', () => {
       }));
     return true; 
   }
+  if (request.action === 'fetchLanguageInfo') {
+    fetchLanguageInfo(request.languageCode)
+      .then(data => sendResponse(data))
+      .catch(error => sendResponse({ 
+        success: false, 
+        error: error.message 
+      }));
+    return true; 
+  }
+  if (request.action === 'login') {
+    authenticateUser(request.email, request.password)
+      .then(data => sendResponse(data))
+      .catch(error => sendResponse({ 
+        success: false, 
+        error: error.message 
+      }));
+    return true;
+  }
+  if (request.action === 'getSession') {
+    getStoredSession()
+      .then(data => sendResponse(data))
+      .catch(error => sendResponse({ 
+        success: false, 
+        error: error.message 
+      }));
+    return true;
+  }
+  if (request.action === 'fetchArticles') {
+    fetchRecommendedArticles(request.session, request.language)
+      .then(data => sendResponse(data))
+      .catch(error => sendResponse({ 
+        success: false, 
+        error: error.message 
+      }));
+    return true;
+  }
+  if (request.action === 'log out') {
+    clearSession()
+      .then(data => sendResponse(data))
+      .catch(error => sendResponse({ 
+        success: false, 
+        error: error.message 
+      }));
+    return true;
+  }
 });
 
-async function fetchBibleVerse(): Promise<{ success: boolean; verse?: string; reference?: string; error?: string }> {
+async function fetchZeeguuLanguages(): Promise<{ success: boolean; languages?: any; error?: string }> {
   try {
-    const bibleMetadata: Record<string, number> = {
-      "Genesis": 50,
-      "Exodus": 40,
-      "Leviticus": 27,
-      "Numbers": 36,
-      "Deuteronomy": 34,
-      "Joshua": 24,
-      "Judges": 21,
-      "Ruth": 4,
-      "1 Samuel": 31,
-      "2 Samuel": 24,
-      "1 Kings": 22,
-      "2 Kings": 25,
-      "1 Chronicles": 29,
-      "2 Chronicles": 36,
-      "Ezra": 10,
-      "Nehemiah": 13,
-      "Esther": 10,
-      "Job": 42,
-      "Psalms": 150,
-      "Proverbs": 31,
-      "Ecclesiastes": 12,
-      "Song of Solomon": 8,
-      "Isaiah": 66,
-      "Jeremiah": 52,
-      "Lamentations": 5,
-      "Ezekiel": 48,
-      "Daniel": 12,
-      "Hosea": 14,
-      "Joel": 3,
-      "Amos": 9,
-      "Obadiah": 1,
-      "Jonah": 4,
-      "Micah": 7,
-      "Nahum": 3,
-      "Habakkuk": 3,
-      "Zephaniah": 3,
-      "Haggai": 2,
-      "Zechariah": 14,
-      "Malachi": 4,
-      "Matthew": 28,
-      "Mark": 16,
-      "Luke": 24,
-      "John": 21,
-      "Acts": 28,
-      "Romans": 16,
-      "1 Corinthians": 16,
-      "2 Corinthians": 13,
-      "Galatians": 6,
-      "Ephesians": 6,
-      "Philippians": 4,
-      "Colossians": 4,
-      "1 Thessalonians": 5,
-      "2 Thessalonians": 3,
-      "1 Timothy": 6,
-      "2 Timothy": 4,
-      "Titus": 3,
-      "Philemon": 1,
-      "Hebrews": 13,
-      "James": 5,
-      "1 Peter": 5,
-      "2 Peter": 3,
-      "1 John": 5,
-      "2 John": 1,
-      "3 John": 1,
-      "Jude": 1,
-      "Revelation": 22
-    };
+    // List of API endpoints to try in order
+    const endpoints = [
+      'https://zeeguu.org/system_languages',
+      'https://api.zeeguu.org/system_languages',
+      'https://zeeguu.unibe.ch/system_languages',
+      'https://api.zeeguu.unibe.ch/system_languages',
+    ];
 
-    // Select a random book
-    const books = Object.keys(bibleMetadata);
-    const randomBook = books[Math.floor(Math.random() * books.length)] as keyof typeof bibleMetadata;
+    let lastError: Error | null = null;
 
-    // Select a random chapter
-    const maxChapters = bibleMetadata[randomBook];
-    const randomChapter = Math.floor(Math.random() * maxChapters) + 1;
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`Attempting to fetch from: ${endpoint}`);
+        const sysResponse = await fetch(endpoint, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          },
+        });
 
-    // Fetch the first verse of the random chapter
-    const response = await fetch(`https://bible-api.com/${randomBook}+${randomChapter}:1`);
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Failed to fetch from Bible API. Status: ${response.status}, Response: ${errorText}`);
-      throw new Error("Failed to fetch from Bible API");
+        if (sysResponse.ok) {
+          const text = await sysResponse.text();
+          let sysData;
+          
+          try {
+            sysData = JSON.parse(text);
+          } catch {
+            console.warn(`Failed to parse JSON from ${endpoint}, skipping`);
+            lastError = new Error(`Invalid JSON from ${endpoint}`);
+            continue;
+          }
+
+          if (sysData.learnable_languages && Array.isArray(sysData.learnable_languages)) {
+            console.log(`Successfully fetched from ${endpoint}`);
+            return {
+              success: true,
+              languages: sysData.learnable_languages,
+            };
+          }
+        }
+      } catch (e) {
+        console.log(`Endpoint ${endpoint} failed:`, e);
+        lastError = e instanceof Error ? e : new Error(String(e));
+        continue;
+      }
     }
 
-    const data = await response.json();
-
-    const bookName = data.book_name || randomBook;
-    const chapter = data.chapter || randomChapter;
-    const verse = data.verse || 1;
+    // If all endpoints failed, use fallback
+    console.error('All API endpoints failed, using fallback languages');
+    const fallbackLanguages = [
+      { code: 'de', name: 'German' },
+      { code: 'es', name: 'Spanish' },
+      { code: 'fr', name: 'French' },
+      { code: 'nl', name: 'Dutch' },
+      { code: 'en', name: 'English' },
+      { code: 'it', name: 'Italian' },
+      { code: 'pt', name: 'Portuguese' },
+      { code: 'ru', name: 'Russian' },
+      { code: 'ja', name: 'Japanese' },
+      { code: 'pl', name: 'Polish' },
+      { code: 'sv', name: 'Swedish' },
+      { code: 'da', name: 'Danish' },
+      { code: 'no', name: 'Norwegian' },
+      { code: 'hu', name: 'Hungarian' },
+      { code: 'ro', name: 'Romanian' },
+      { code: 'uk', name: 'Ukrainian' },
+      { code: 'el', name: 'Greek' },
+    ];
 
     return {
       success: true,
-      verse: data.text,
-      reference: `${bookName} ${chapter}:${verse}`,
+      languages: fallbackLanguages,
     };
   } catch (error) {
-    console.error('Error fetching Bible verse:', error);
+    console.error('Error in fetchZeeguuLanguages:', error);
+    
+    // Return fallback languages when any error occurs
+    const fallbackLanguages = [
+      { code: 'de', name: 'German' },
+      { code: 'es', name: 'Spanish' },
+      { code: 'fr', name: 'French' },
+      { code: 'nl', name: 'Dutch' },
+      { code: 'en', name: 'English' },
+      { code: 'it', name: 'Italian' },
+      { code: 'pt', name: 'Portuguese' },
+      { code: 'ru', name: 'Russian' },
+      { code: 'ja', name: 'Japanese' },
+      { code: 'pl', name: 'Polish' },
+      { code: 'sv', name: 'Swedish' },
+      { code: 'da', name: 'Danish' },
+      { code: 'no', name: 'Norwegian' },
+      { code: 'hu', name: 'Hungarian' },
+      { code: 'ro', name: 'Romanian' },
+      { code: 'uk', name: 'Ukrainian' },
+      { code: 'el', name: 'Greek' },
+    ];
+
+    return {
+      success: true,
+      languages: fallbackLanguages,
+    };
+  }
+}
+
+async function fetchLanguageInfo(languageCode: string): Promise<{ success: boolean; info?: string; tips?: string[]; error?: string }> {
+  try {
+    const tips: Record<string, string[]> = {
+      'de': ['Learn numbers 1-10', 'Practice common verbs', 'Master gender of nouns'],
+      'es': ['Learn greetings', 'Practice verb conjugations', 'Study common phrases'],
+      'fr': ['Focus on pronunciation', 'Learn verb tenses', 'Practice listening'],
+      'nl': ['Master noun genders', 'Learn common words', 'Practice speaking'],
+      'en': ['Expand vocabulary', 'Practice pronunciation', 'Study grammar basics'],
+      'it': ['Learn verb forms', 'Practice pronunciation', 'Study common phrases'],
+      'pt': ['Learn verb conjugations', 'Practice listening', 'Study grammar'],
+      'ru': ['Master Cyrillic alphabet', 'Learn cases', 'Practice pronunciation'],
+      'ja': ['Master Hiragana', 'Learn Katakana', 'Study basic grammar'],
+      'zh': ['Learn Pinyin', 'Master tone marks', 'Study radicals'],
+      'no': ['Learn basic grammar', 'Practice pronunciation', 'Study verb forms'],
+      'ro': ['Learn verb tenses', 'Practice listening', 'Study common words'],
+    };
+
+    const languageNames: Record<string, string> = {
+      'de': 'German',
+      'es': 'Spanish',
+      'fr': 'French',
+      'nl': 'Dutch',
+      'en': 'English',
+      'it': 'Italian',
+      'pt': 'Portuguese',
+      'ru': 'Russian',
+      'ja': 'Japanese',
+      'zh': 'Chinese',
+      'no': 'Norwegian',
+      'ro': 'Romanian',
+    };
+
+    return {
+      success: true,
+      info: `Learning ${languageNames[languageCode] || languageCode}`,
+      tips: tips[languageCode] || ['Keep practicing!', 'Stay consistent', 'Have fun learning!'],
+    };
+  } catch (error) {
+    console.error('Error fetching language info:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
+}
+
+// Authentication & Session Management
+async function authenticateUser(email: string, password: string): Promise<{ success: boolean; session?: string; error?: string }> {
+  try {
+    const domains = [
+      'https://zeeguu.unibe.ch',
+      'https://api.zeeguu.unibe.ch',
+      'https://zeeguu.org',
+      'https://api.zeeguu.org',
+    ];
+
+    for (const domain of domains) {
+      try {
+        console.log(`Attempting login with domain: ${domain}`);
+        const response = await fetch(`${domain}/session/${email}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+          },
+          body: `password=${encodeURIComponent(password)}`,
+        });
+
+        if (response.ok) {
+          const text = await response.text();
+          const sessionId = text.trim().replace(/[\"']/g, '');
+          
+          // Store session securely
+          await new Promise<void>((resolve) => {
+            (self as any).chrome.storage.local.set({
+              zeeguu_session: sessionId,
+              zeeguu_email: email,
+              zeeguu_domain: domain,
+            }, () => {
+              console.log(`Successfully authenticated with ${domain}`);
+              resolve();
+            });
+          });
+
+          return {
+            success: true,
+            session: sessionId,
+          };
+        }
+      } catch (e) {
+        console.log(`Domain ${domain} failed:`, e);
+        continue;
+      }
+    }
+
+    return {
+      success: false,
+      error: 'Invalid email or password. Please check your credentials.',
+    };
+  } catch (error) {
+    console.error('Authentication error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Authentication failed',
+    };
+  }
+}
+
+async function getStoredSession(): Promise<{ success: boolean; session?: string; email?: string; domain?: string; error?: string }> {
+  return new Promise((resolve) => {
+    (self as any).chrome.storage.local.get(
+      ['zeeguu_session', 'zeeguu_email', 'zeeguu_domain'],
+      (items: any) => {
+        if (items.zeeguu_session) {
+          resolve({
+            success: true,
+            session: items.zeeguu_session,
+            email: items.zeeguu_email,
+            domain: items.zeeguu_domain,
+          });
+        } else {
+          resolve({
+            success: false,
+            error: 'No session found',
+          });
+        }
+      }
+    );
+  });
+}
+
+async function clearSession(): Promise<{ success: boolean }> {
+  return new Promise((resolve) => {
+    (self as any).chrome.storage.local.remove(
+      ['zeeguu_session', 'zeeguu_email', 'zeeguu_domain'],
+      () => {
+        console.log('Session cleared');
+        resolve({ success: true });
+      }
+    );
+  });
+}
+
+async function fetchRecommendedArticles(session: string, language?: string): Promise<{ success: boolean; articles?: any; error?: string }> {
+  try {
+    // If no session (demo mode), return demo articles
+    if (!session) {
+      const demoArticles = getDemoArticles(language);
+      return {
+        success: true,
+        articles: demoArticles,
+      };
+    }
+
+    const sessionData = await getStoredSession();
+    if (!sessionData.success || !sessionData.domain) {
+      return {
+        success: false,
+        error: 'No valid session',
+      };
+    }
+
+    const domain = sessionData.domain;
+    console.log(`Fetching articles from ${domain}`);
+
+    const response = await fetch(`${domain}/user_articles/recommended?session=${session}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    if (response.ok) {
+      const articles = await response.json();
+      console.log(`Fetched ${articles.length} recommended articles`);
+      return {
+        success: true,
+        articles: articles.slice(0, 5), // Return top 5 articles
+      };
+    } else {
+      throw new Error(`Failed to fetch articles. Status: ${response.status}`);
+    }
+  } catch (error) {
+    console.error('Error fetching articles:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch articles',
+    };
+  }
+}
+
+function getDemoArticles(language?: string): any[] {
+  const demoArticlesByLanguage: Record<string, any[]> = {
+    'de': [
+      { title: 'Die Vorteile des Lesens', source: 'Deutsch Lernen', cefr_level: 'A2', url: 'https://zeeguu.org' },
+      { title: 'Berlins Geschichte', source: 'Deutsche Kultur', cefr_level: 'B1', url: 'https://zeeguu.org' },
+      { title: 'Umweltschutz in Deutschland', source: 'Nachrichten', cefr_level: 'B2', url: 'https://zeeguu.org' },
+      { title: 'Deutsche Küche erkunden', source: 'Lifestyle', cefr_level: 'A2', url: 'https://zeeguu.org' },
+      { title: 'Kultur und Traditionen', source: 'Das Magazin', cefr_level: 'B1', url: 'https://zeeguu.org' },
+    ],
+    'es': [
+      { title: 'La literatura española moderna', source: 'Cultura', cefr_level: 'B1', url: 'https://zeeguu.org' },
+      { title: 'Recetas de comida española', source: 'Gastronomía', cefr_level: 'A2', url: 'https://zeeguu.org' },
+      { title: 'Ciudades de España para visitar', source: 'Viajes', cefr_level: 'A2', url: 'https://zeeguu.org' },
+      { title: 'Historia de Madrid', source: 'Educación', cefr_level: 'B2', url: 'https://zeeguu.org' },
+      { title: 'Tradiciones españolas', source: 'Sociedad', cefr_level: 'B1', url: 'https://zeeguu.org' },
+    ],
+    'fr': [
+      { title: 'La Cuisine Française', source: 'Gastronomie', cefr_level: 'A2', url: 'https://zeeguu.org' },
+      { title: 'Paris et ses monuments', source: 'Tourisme', cefr_level: 'A1', url: 'https://zeeguu.org' },
+      { title: 'Littérature française classique', source: 'Édition', cefr_level: 'B2', url: 'https://zeeguu.org' },
+      { title: 'Arts et culture français', source: 'Culture', cefr_level: 'B1', url: 'https://zeeguu.org' },
+      { title: 'Traditions de France', source: 'Lifestyle', cefr_level: 'A2', url: 'https://zeeguu.org' },
+    ],
+    'it': [
+      { title: 'La dolce vita italiana', source: 'Stile di vita', cefr_level: 'A2', url: 'https://zeeguu.org' },
+      { title: 'Storia dell\'arte italiana', source: 'Arte', cefr_level: 'B1', url: 'https://zeeguu.org' },
+      { title: 'La cucina italiana', source: 'Gastronomia', cefr_level: 'A1', url: 'https://zeeguu.org' },
+      { title: 'Città da visitare in Italia', source: 'Turismo', cefr_level: 'A2', url: 'https://zeeguu.org' },
+      { title: 'Tradizioni italiane', source: 'Cultura', cefr_level: 'B1', url: 'https://zeeguu.org' },
+    ],
+    'nl': [
+      { title: 'Nederland op ontdekking', source: 'Toerisme', cefr_level: 'A2', url: 'https://zeeguu.org' },
+      { title: 'Nederlandse cultuur en tradities', source: 'Cultuur', cefr_level: 'B1', url: 'https://zeeguu.org' },
+      { title: 'Amsterdam: Een rondleiding', source: 'Steden', cefr_level: 'A2', url: 'https://zeeguu.org' },
+      { title: 'Typisch Nederlands eten', source: 'Keuken', cefr_level: 'A1', url: 'https://zeeguu.org' },
+      { title: 'Nederlandse geschiedenis', source: 'Educatie', cefr_level: 'B2', url: 'https://zeeguu.org' },
+    ],
+  };
+
+  // Return articles for the selected language, or general demo articles
+  return demoArticlesByLanguage[language || 'en'] || [
+    { title: 'Welcome to Language Learning', source: 'Demo Content', cefr_level: 'A1', url: 'https://zeeguu.org' },
+    { title: 'Start Your Journey', source: 'Learning Hub', cefr_level: 'A1', url: 'https://zeeguu.org' },
+    { title: 'Common Phrases', source: 'Daily Learning', cefr_level: 'A1', url: 'https://zeeguu.org' },
+    { title: 'Culture and Traditions', source: 'World Culture', cefr_level: 'A2', url: 'https://zeeguu.org' },
+    { title: 'Practice Makes Perfect', source: 'Tips & Tricks', cefr_level: 'A1', url: 'https://zeeguu.org' },
+  ];
 }
