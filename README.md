@@ -48,6 +48,8 @@ cd extension
 2. Install dependencies:
 ```bash
 npm install
+npm install --save-dev shelljs
+npm install --save-dev @types/chrome
 ```
 
 3. Build the extension:
