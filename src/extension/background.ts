@@ -12,11 +12,11 @@
  */
 
 self.addEventListener('install', () => {
-  console.log('Service worker installed (TS)');
+  console.log('Service worker installed');
 });
 
 self.addEventListener('activate', () => {
-  console.log('Service worker activated (TS)');
+  console.log('Service worker activated');
 });
 
 (self as any).chrome.runtime.onMessage.addListener((request: any, sender: any, sendResponse: any) => {
@@ -49,6 +49,15 @@ self.addEventListener('activate', () => {
   }
   if (request.action === 'getSession') {
     getStoredSession()
+      .then(data => sendResponse(data))
+      .catch(error => sendResponse({ 
+        success: false, 
+        error: error.message 
+      }));
+    return true;
+  }
+  if (request.action === 'getUserLanguages') {
+    getUserLanguages(request.session)
       .then(data => sendResponse(data))
       .catch(error => sendResponse({ 
         success: false, 
@@ -249,10 +258,8 @@ async function authenticateUser(email: string, password: string): Promise<{ succ
 
     for (const domain of domains) {
       try {
-        console.log(`[Login] Attempting with domain: ${domain}`);
-        
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout per domain
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
 
         const response = await fetch(`${domain}/session/${email}`, {
           method: 'POST',
@@ -268,34 +275,23 @@ async function authenticateUser(email: string, password: string): Promise<{ succ
 
         if (response.ok) {
           const text = await response.text();
-          console.log(`[Login] Raw response from ${domain}:`, text);
-          
           let sessionId = text.trim();
           
-          // Handle JSON response: {"session":"..."}  
           if (sessionId.startsWith('{')) {
             try {
               const json = JSON.parse(sessionId);
               sessionId = json.session || '';
-              console.log(`[Login] Extracted session from JSON`);
-            } catch (e) {
-              console.warn(`[Login] Failed to parse JSON response`);
+            } catch {
               continue;
             }
           } else {
-            // Handle plain text response
             sessionId = sessionId.replace(/[\"']/g, '');
           }
           
-          console.log(`[Login] Final session ID:`, sessionId);
-          console.log(`[Login] Session ID length:`, sessionId.length);
-          
           if (!sessionId) {
-            console.warn(`Empty session ID from ${domain}`);
             continue;
           }
           
-          // Store session with domain
           await new Promise<void>((resolve) => {
             (self as any).chrome.storage.local.set({
               zeeguu_session: sessionId,
@@ -303,7 +299,6 @@ async function authenticateUser(email: string, password: string): Promise<{ succ
               zeeguu_domain: domain,
               zeeguu_login_time: new Date().toISOString(),
             }, () => {
-              console.log(`[Login] Successfully authenticated with ${domain}`);
               resolve();
             });
           });
@@ -313,21 +308,12 @@ async function authenticateUser(email: string, password: string): Promise<{ succ
             session: sessionId,
           };
         } else if (response.status === 401 || response.status === 403) {
-          console.log(`[Login] Invalid credentials from ${domain}`);
-          // Invalid credentials, no need to try other domains
           return {
             success: false,
             error: 'Invalid email or password. Please check your credentials.',
           };
-        } else {
-          console.log(`[Login] Server returned status ${response.status} from ${domain}`);
         }
       } catch (e: any) {
-        if (e.name === 'AbortError') {
-          console.log(`[Login] Timeout with domain: ${domain}`);
-        } else {
-          console.log(`[Login] Domain ${domain} failed:`, e.message);
-        }
         continue;
       }
     }
@@ -337,7 +323,6 @@ async function authenticateUser(email: string, password: string): Promise<{ succ
       error: 'Invalid email or password. Please check your credentials.',
     };
   } catch (error) {
-    console.error('[Login] Authentication error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Authentication failed',
@@ -366,6 +351,57 @@ async function getStoredSession(): Promise<{ success: boolean; session?: string;
       }
     );
   });
+}
+
+async function getUserLanguages(session: string): Promise<{ success: boolean; languages?: any[]; error?: string }> {
+  try {
+    if (!session) {
+      return {
+        success: false,
+        error: 'No session provided',
+      };
+    }
+
+    const sessionData = await getStoredSession();
+    if (!sessionData.success || !sessionData.domain) {
+      return {
+        success: false,
+        error: 'No valid session',
+      };
+    }
+
+    const domain = sessionData.domain;
+    const response = await fetch(`${domain}/user_languages?session=${session}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      let languages = Array.isArray(data) ? data : data.languages || [];
+      
+      if (languages.length === 0) {
+        return {
+          success: true,
+          languages: [{ code: 'de', name: 'German' }],
+        };
+      }
+
+      return {
+        success: true,
+        languages: languages,
+      };
+    } else {
+      throw new Error(`Failed to fetch user languages. Status: ${response.status}`);
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch user languages',
+    };
+  }
 }
 
 async function clearSession(): Promise<{ success: boolean }> {

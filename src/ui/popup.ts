@@ -67,7 +67,9 @@ async function checkSession() {
   if (result.success && result.data) {
     currentSession = result.data.session;
     currentEmail = result.data.email;
-    showLanguagesView();
+    // Logged-in users go directly to articles (skip language selection)
+    await loadUserPreferredLanguage();
+    showArticlesView();
   } else {
     showWelcomeView();
   }
@@ -103,26 +105,21 @@ async function handleLogin(email: string, password: string) {
   loginView.clearError();
   loginView.setLoading(true);
 
-  console.log('[Popup] Login attempt with email:', email);
-
   try {
     const result = await AuthService.login(email, password);
-    console.log('[Popup] AuthService.login result:', result);
 
     if (result.success && result.data) {
-      console.log('[Popup] Login successful, storing session');
       currentSession = result.data.session;
       currentEmail = result.data.email;
       loginView.reset();
       loginView.setLoading(false);
-      showLanguagesView();
+      await loadUserPreferredLanguage();
+      showArticlesView();
     } else {
-      console.log('[Popup] Login failed:', result.error);
       loginView.setError(result.error || 'Login failed');
       loginView.setLoading(false);
     }
   } catch (error: any) {
-    console.log('[Popup] Login error:', error);
     loginView.setError(error.message || 'An unexpected error occurred');
     loginView.setLoading(false);
   } finally {
@@ -145,6 +142,23 @@ async function loadLanguages() {
     languagesView.setError(error.message);
   } finally {
     languagesView.setLoading(false);
+  }
+}
+
+async function loadUserPreferredLanguage() {
+  try {
+    const response: any = await chrome.runtime.sendMessage({ 
+      action: 'getUserLanguages',
+      session: currentSession 
+    });
+
+    if (response.success && response.languages && response.languages.length > 0) {
+      selectedLanguage = response.languages[0];
+    } else {
+      selectedLanguage = { code: 'de', name: 'German' };
+    }
+  } catch {
+    selectedLanguage = { code: 'de', name: 'German' };
   }
 }
 
