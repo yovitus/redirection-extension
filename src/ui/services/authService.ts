@@ -28,12 +28,11 @@ export class AuthService {
     }
 
     try {
-      // Send login request to background service worker
       const response = await this.sendMessageWithTimeout({
         action: 'login',
         email: email.trim(),
         password: password,
-      }, 20000); // Increased timeout to 20 seconds (4 domains x 8 sec per domain + buffer)
+      }, 20000);
 
       if (response.success) {
         return {
@@ -50,7 +49,6 @@ export class AuthService {
         };
       }
     } catch (error) {
-      console.error('Login error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : ERROR_MESSAGES.networkError,
@@ -82,7 +80,6 @@ export class AuthService {
         };
       }
     } catch (error) {
-      console.error('Get session error:', error);
       return {
         success: false,
         error: ERROR_MESSAGES.networkError,
@@ -102,9 +99,7 @@ export class AuthService {
       return {
         success: true,
       };
-    } catch (error) {
-      console.error('Logout error:', error);
-      // Still consider logout successful if we can't reach background
+    } catch {
       return {
         success: true,
       };
