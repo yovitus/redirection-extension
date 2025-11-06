@@ -3,7 +3,8 @@
   // src/extension/content.ts
   console.log("Content script running (TS)");
   window.addEventListener("message", (event) => {
-    if (event.source !== window) return;
+    if (event.source !== window)
+      return;
     console.log("Content script received window message", event.data);
   });
   if (window.chrome?.runtime?.sendMessage) {

@@ -61,12 +61,26 @@ export class LoginView {
       form.reset();
     }
     this.clearError();
+    this.setLoading(false);
   }
 
   setButtonDisabled(disabled: boolean): void {
     const btn = document.getElementById('login-btn') as HTMLButtonElement;
     if (btn) {
       btn.disabled = disabled;
+    }
+  }
+
+  setLoading(isLoading: boolean): void {
+    const btn = document.getElementById('login-btn') as HTMLButtonElement;
+    if (btn) {
+      if (isLoading) {
+        btn.innerHTML = '<span class="spinner"></span> Logging in...';
+        btn.disabled = true;
+      } else {
+        btn.innerHTML = 'Login';
+        btn.disabled = false;
+      }
     }
   }
 }

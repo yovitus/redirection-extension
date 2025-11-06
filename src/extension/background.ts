@@ -231,16 +231,29 @@ async function fetchLanguageInfo(languageCode: string): Promise<{ success: boole
 // Authentication & Session Management
 async function authenticateUser(email: string, password: string): Promise<{ success: boolean; session?: string; error?: string }> {
   try {
+    // Validate inputs
+    if (!email || !password) {
+      return {
+        success: false,
+        error: 'Email and password are required',
+      };
+    }
+
+    // Try fastest/most reliable endpoints first
     const domains = [
-      'https://zeeguu.unibe.ch',
-      'https://api.zeeguu.unibe.ch',
-      'https://zeeguu.org',
-      'https://api.zeeguu.org',
+      'https://api.zeeguu.org',       // Primary (fastest & reliable)
+      'https://zeeguu.org',           // Secondary
+      'https://api.zeeguu.unibe.ch',  // Fallback 1 (often times out)
+      'https://zeeguu.unibe.ch',      // Fallback 2 (often times out)
     ];
 
     for (const domain of domains) {
       try {
-        console.log(`Attempting login with domain: ${domain}`);
+        console.log(`[Login] Attempting with domain: ${domain}`);
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout per domain
+
         const response = await fetch(`${domain}/session/${email}`, {
           method: 'POST',
           headers: {
@@ -248,20 +261,49 @@ async function authenticateUser(email: string, password: string): Promise<{ succ
             'Accept': 'application/json',
           },
           body: `password=${encodeURIComponent(password)}`,
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const text = await response.text();
-          const sessionId = text.trim().replace(/[\"']/g, '');
+          console.log(`[Login] Raw response from ${domain}:`, text);
           
-          // Store session securely
+          let sessionId = text.trim();
+          
+          // Handle JSON response: {"session":"..."}  
+          if (sessionId.startsWith('{')) {
+            try {
+              const json = JSON.parse(sessionId);
+              sessionId = json.session || '';
+              console.log(`[Login] Extracted session from JSON`);
+            } catch (e) {
+              console.warn(`[Login] Failed to parse JSON response`);
+              continue;
+            }
+          } else {
+            // Handle plain text response
+            sessionId = sessionId.replace(/[\"']/g, '');
+          }
+          
+          console.log(`[Login] Final session ID:`, sessionId);
+          console.log(`[Login] Session ID length:`, sessionId.length);
+          
+          if (!sessionId) {
+            console.warn(`Empty session ID from ${domain}`);
+            continue;
+          }
+          
+          // Store session with domain
           await new Promise<void>((resolve) => {
             (self as any).chrome.storage.local.set({
               zeeguu_session: sessionId,
               zeeguu_email: email,
               zeeguu_domain: domain,
+              zeeguu_login_time: new Date().toISOString(),
             }, () => {
-              console.log(`Successfully authenticated with ${domain}`);
+              console.log(`[Login] Successfully authenticated with ${domain}`);
               resolve();
             });
           });
@@ -270,9 +312,22 @@ async function authenticateUser(email: string, password: string): Promise<{ succ
             success: true,
             session: sessionId,
           };
+        } else if (response.status === 401 || response.status === 403) {
+          console.log(`[Login] Invalid credentials from ${domain}`);
+          // Invalid credentials, no need to try other domains
+          return {
+            success: false,
+            error: 'Invalid email or password. Please check your credentials.',
+          };
+        } else {
+          console.log(`[Login] Server returned status ${response.status} from ${domain}`);
         }
-      } catch (e) {
-        console.log(`Domain ${domain} failed:`, e);
+      } catch (e: any) {
+        if (e.name === 'AbortError') {
+          console.log(`[Login] Timeout with domain: ${domain}`);
+        } else {
+          console.log(`[Login] Domain ${domain} failed:`, e.message);
+        }
         continue;
       }
     }
@@ -282,7 +337,7 @@ async function authenticateUser(email: string, password: string): Promise<{ succ
       error: 'Invalid email or password. Please check your credentials.',
     };
   } catch (error) {
-    console.error('Authentication error:', error);
+    console.error('[Login] Authentication error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Authentication failed',

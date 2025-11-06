@@ -19,6 +19,7 @@ import { LoginView } from './views/LoginView';
 import { LanguagesView } from './views/LanguagesView';
 import { ArticlesView } from './views/ArticlesView';
 import { ArticleReaderView } from './views/ArticleReaderView';
+import { AuthService } from './services/authService';
 
 // State management
 let currentSession: string | null = null;
@@ -62,10 +63,10 @@ function setupEventListeners() {
 }
 
 async function checkSession() {
-  const response: any = await chrome.runtime.sendMessage({ action: 'getSession' });
-  if (response.success) {
-    currentSession = response.session || null;
-    currentEmail = response.email || null;
+  const result = await AuthService.getSession();
+  if (result.success && result.data) {
+    currentSession = result.data.session;
+    currentEmail = result.data.email;
     showLanguagesView();
   } else {
     showWelcomeView();
@@ -100,24 +101,30 @@ function showArticlesView() {
 async function handleLogin(email: string, password: string) {
   loginView.setButtonDisabled(true);
   loginView.clearError();
+  loginView.setLoading(true);
+
+  console.log('[Popup] Login attempt with email:', email);
 
   try {
-    const response: any = await chrome.runtime.sendMessage({
-      action: 'login',
-      email: email,
-      password: password,
-    });
+    const result = await AuthService.login(email, password);
+    console.log('[Popup] AuthService.login result:', result);
 
-    if (response.success) {
-      currentSession = response.session || null;
-      currentEmail = email;
+    if (result.success && result.data) {
+      console.log('[Popup] Login successful, storing session');
+      currentSession = result.data.session;
+      currentEmail = result.data.email;
       loginView.reset();
+      loginView.setLoading(false);
       showLanguagesView();
     } else {
-      loginView.setError(response.error || 'Login failed');
+      console.log('[Popup] Login failed:', result.error);
+      loginView.setError(result.error || 'Login failed');
+      loginView.setLoading(false);
     }
   } catch (error: any) {
-    loginView.setError(error.message);
+    console.log('[Popup] Login error:', error);
+    loginView.setError(error.message || 'An unexpected error occurred');
+    loginView.setLoading(false);
   } finally {
     loginView.setButtonDisabled(false);
   }
@@ -180,7 +187,7 @@ function goBackToLanguages() {
 }
 
 async function handleLogout() {
-  await chrome.runtime.sendMessage({ action: 'log out' });
+  const result = await AuthService.logout();
   currentSession = null;
   currentEmail = null;
   isDemoMode = false;
