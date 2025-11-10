@@ -177,18 +177,7 @@
       font-size: 12px;
       color: #999;
     }
-    .welcome-view {
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      gap: 100px;
-    }
-    .welcome-view p {
-      font-size: 15px;
-      color: #666;
-      margin-bottom: 0;
-      line-height: 1.5;
-    }
+    /* welcome view removed */
     .button-group {
       display: flex;
       flex-direction: column;
@@ -293,15 +282,22 @@
   <div class="container">
     <h1>🌍 Zeeguu</h1>
     <p class="subtitle">Learn a language instantly</p>
-    
-    <!-- Welcome View -->
-    <div id="welcome-view" class="view active">
-      <p>Welcome to Zeeguu! Choose how you'd like to start:</p>
-      <div class="button-group">
-        <button class="btn" id="login-choice-btn">📧 Login with Account</button>
-        <button class="btn-secondary" id="try-demo-btn">🚀 Try Demo (No Login)</button>
+    <!-- Quick overlay launcher -->
+    <div id="overlay-section" style="margin-bottom:16px;">
+      <div class="form-group">
+        <label for="overlay-url">Open overlay (uses your browser session)</label>
+        <input type="text" id="overlay-url" placeholder="https://news.ycombinator.com" autofocus>
+      </div>
+      <button class="btn" id="overlay-open-btn">Open Overlay</button>
+      <div style="height:8px"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-secondary overlay-preset" data-url="https://zeeguu.org/exercises">Zeeguu exercises</button>
+        <button class="btn-secondary overlay-preset" data-url="https://reddit.com">Reddit</button>
+        <button class="btn-secondary overlay-preset" data-url="https://mail.google.com">Gmail</button>
       </div>
     </div>
+    
+    <!-- (Welcome view removed — popup now only exposes the overlay launcher) -->
     
     <!-- Login View -->
     <div id="login-view" class="view">

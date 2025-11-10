@@ -1,189 +1,69 @@
 /**
- * popup.ts - UI Router (Frontend Orchestrator)
- * 
- * Role: Main controller for the extension's popup interface
- * Responsibilities:
- * - Imports and wires up 5 view classes (WelcomeView, LoginView, LanguagesView, ArticlesView, ArticleReaderView)
- * - Manages global state (currentSession, currentEmail, selectedLanguage, isDemoMode)
- * - Routes between views (Welcome → Login → Languages → Articles → ArticleReader)
- * - Sends messages to background.ts for all data/API needs
- * - Handles user interactions and updates views based on responses
- * 
- * Architecture:
- * User clicks button → popup.ts handler fires → sends message to background.ts
- *   → background.ts returns data → popup.ts calls view.render() → View updates DOM
+ * popup.ts - Overlay launcher only
+ *
+ * Minimal controller that focuses the URL input and sends an `openOverlay` message
+ * to the background service worker. The popup itself then closes.
  */
 
-import { WelcomeView } from './views/WelcomeView';
-import { LoginView } from './views/LoginView';
-import { LanguagesView } from './views/LanguagesView';
-import { ArticlesView } from './views/ArticlesView';
-import { ArticleReaderView } from './views/ArticleReaderView';
-
-// State management
-let currentSession: string | null = null;
-let currentEmail: string | null = null;
-let selectedLanguage: any = null;
-let isDemoMode: boolean = false;
-let currentArticle: any = null;
-
-// View instances
-const welcomeView = new WelcomeView();
-const loginView = new LoginView();
-const languagesView = new LanguagesView();
-const articlesView = new ArticlesView();
-const articleReaderView = new ArticleReaderView();
+// Use chrome from window to avoid duplicate ambient declarations
+const chromeApi: any = (window as any).chrome;
 
 window.addEventListener('DOMContentLoaded', () => {
-  checkSession();
-  setupEventListeners();
+	setupOverlayUI();
+	focusOverlayInput();
 });
 
-function setupEventListeners() {
-  welcomeView.onLoginClick(() => showLoginView());
-  welcomeView.onDemoClick(() => startDemoMode());
+function setupOverlayUI() {
+	try {
+		const urlInput = document.getElementById('overlay-url') as HTMLInputElement | null;
+		const openBtn = document.getElementById('overlay-open-btn') as HTMLButtonElement | null;
 
-  loginView.onSubmit((email, password) => handleLogin(email, password));
-  loginView.onBackClick(showWelcomeView);
+		const presets = document.querySelectorAll('.overlay-preset');
+		presets.forEach(p => {
+			p.addEventListener('click', (e) => {
+				const target = e.currentTarget as HTMLElement;
+				const u = target.getAttribute('data-url') || '';
+				if (urlInput) urlInput.value = u;
+			});
+		});
 
-  languagesView.onLogoutClick(handleLogout);
-  languagesView.onBackClick(() => {
-    isDemoMode = false;
-    currentEmail = null;
-    showWelcomeView();
-  });
+		if (openBtn && urlInput) {
+			openBtn.addEventListener('click', () => {
+				let url = (urlInput.value || '').trim();
+				if (!url) return;
+				if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
-  articlesView.onBackClick(goBackToLanguages);
+						try {
+							if (chromeApi && chromeApi.runtime && chromeApi.runtime.sendMessage) {
+								chromeApi.runtime.sendMessage({ action: 'openOverlay', url, width: 900, height: 700 }, (resp: any) => {
+									try { window.close(); } catch {}
+								});
+							} else {
+								try { window.close(); } catch {}
+							}
+						} catch (e) {
+							try { window.close(); } catch {}
+						}
+			});
 
-  articleReaderView.onBackClick(() => showArticlesView());
-  articleReaderView.onOpenClick((url) => {
-    chrome.tabs.create({ url });
-  });
+			urlInput.addEventListener('keydown', (ev) => {
+				if ((ev as KeyboardEvent).key === 'Enter') {
+					openBtn.click();
+				}
+			});
+		}
+	} catch (e) {
+		console.warn('Overlay UI setup failed', e);
+	}
 }
 
-async function checkSession() {
-  const response: any = await chrome.runtime.sendMessage({ action: 'getSession' });
-  if (response.success) {
-    currentSession = response.session || null;
-    currentEmail = response.email || null;
-    showLanguagesView();
-  } else {
-    showWelcomeView();
-  }
+function focusOverlayInput() {
+	try {
+		const el = document.getElementById('overlay-url') as HTMLInputElement | null;
+		if (el) {
+			el.focus();
+			el.select && el.select();
+		}
+	} catch (e) {}
 }
 
-function showWelcomeView() {
-  welcomeView.render();
-}
-
-function startDemoMode() {
-  isDemoMode = true;
-  currentEmail = 'Demo User';
-  currentSession = null;
-  showLanguagesView();
-}
-
-function showLoginView() {
-  loginView.render();
-}
-
-function showLanguagesView() {
-  languagesView.render(currentEmail || '', isDemoMode);
-  loadLanguages();
-}
-
-function showArticlesView() {
-  articlesView.render(selectedLanguage?.name || 'Articles');
-  loadArticles();
-}
-
-async function handleLogin(email: string, password: string) {
-  loginView.setButtonDisabled(true);
-  loginView.clearError();
-
-  try {
-    const response: any = await chrome.runtime.sendMessage({
-      action: 'login',
-      email: email,
-      password: password,
-    });
-
-    if (response.success) {
-      currentSession = response.session || null;
-      currentEmail = email;
-      loginView.reset();
-      showLanguagesView();
-    } else {
-      loginView.setError(response.error || 'Login failed');
-    }
-  } catch (error: any) {
-    loginView.setError(error.message);
-  } finally {
-    loginView.setButtonDisabled(false);
-  }
-}
-
-async function loadLanguages() {
-  languagesView.setLoading(true);
-
-  try {
-    const response: any = await chrome.runtime.sendMessage({ action: 'fetchLanguages' });
-
-    if (response.success && response.languages) {
-      languagesView.renderLanguages(response.languages, selectLanguage);
-    } else {
-      languagesView.setError(response.error || 'Failed to load languages');
-    }
-  } catch (error: any) {
-    languagesView.setError(error.message);
-  } finally {
-    languagesView.setLoading(false);
-  }
-}
-
-function selectLanguage(language: any) {
-  selectedLanguage = language;
-  showArticlesView();
-}
-
-function showArticleReader(article: any) {
-  currentArticle = article;
-  articleReaderView.setOpenButtonUrl(article.url || 'https://zeeguu.org');
-  articleReaderView.render(article, isDemoMode);
-}
-
-async function loadArticles() {
-  articlesView.setLoading(true);
-
-  try {
-    const response: any = await chrome.runtime.sendMessage({
-      action: 'fetchArticles',
-      session: currentSession,
-      language: selectedLanguage?.code,
-    });
-
-    if (response.success && response.articles) {
-      articlesView.renderArticles(response.articles, showArticleReader);
-    } else {
-      articlesView.setError(response.error || 'Failed to load articles');
-    }
-  } catch (error: any) {
-    articlesView.setError(error.message);
-  } finally {
-    articlesView.setLoading(false);
-  }
-}
-
-function goBackToLanguages() {
-  selectedLanguage = null;
-  showLanguagesView();
-}
-
-async function handleLogout() {
-  await chrome.runtime.sendMessage({ action: 'log out' });
-  currentSession = null;
-  currentEmail = null;
-  isDemoMode = false;
-  selectedLanguage = null;
-  showWelcomeView();
-}

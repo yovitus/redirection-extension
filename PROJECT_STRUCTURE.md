@@ -38,11 +38,10 @@ src/ui/
 │   └── [others]
 │
 └── views/                    (TBD - for next phase)
-    ├── WelcomeView.ts
-    ├── LoginView.ts
-    ├── LanguagesView.ts
-    ├── ArticlesView.ts
-    └── ArticleReaderView.ts
+  ├── LoginView.ts
+  ├── LanguagesView.ts
+  ├── ArticlesView.ts
+  └── ArticleReaderView.ts
 ```
 
 ## What You Get Right Now

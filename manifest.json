@@ -14,7 +14,7 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "activeTab", "scripting", "tabs"],
+  "permissions": ["storage", "activeTab", "scripting", "tabs", "windows"],
   "host_permissions": ["<all_urls>"],
   "content_security_policy": {
     "extension_pages": "connect-src 'self' https://zeeguu.org https://api.zeeguu.org https://zeeguu.unibe.ch https://api.zeeguu.unibe.ch; script-src 'self'; object-src 'self'"
