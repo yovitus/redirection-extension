@@ -3,12 +3,14 @@
   "version": "0.1.0",
   "description": "Browser extension for learning languages with Zeeguu",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "node ./scripts/copy-static.js"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "esbuild": "^0.18.17",
-    "@types/chrome": "^0.0.246"
+    "@types/chrome": "^0.0.246",
+    "esbuild": "0.18.20",
+    "shelljs": "^0.10.0",
+    "typescript": "^5"
   }
 }

@@ -2,10 +2,10 @@
 (() => {
   // src/extension/background.ts
   self.addEventListener("install", () => {
-    console.log("Service worker installed (TS)");
+    console.log("Service worker installed");
   });
   self.addEventListener("activate", () => {
-    console.log("Service worker activated (TS)");
+    console.log("Service worker activated");
   });
   self.chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "fetchLanguages") {
@@ -31,6 +31,13 @@
     }
     if (request.action === "getSession") {
       getStoredSession().then((data) => sendResponse(data)).catch((error) => sendResponse({
+        success: false,
+        error: error.message
+      }));
+      return true;
+    }
+    if (request.action === "getUserLanguages") {
+      getUserLanguages(request.session).then((data) => sendResponse(data)).catch((error) => sendResponse({
         success: false,
         error: error.message
       }));
@@ -309,33 +316,59 @@
   }
   async function authenticateUser(email, password) {
     try {
+      if (!email || !password) {
+        return {
+          success: false,
+          error: "Email and password are required"
+        };
+      }
       const domains = [
-        "https://zeeguu.unibe.ch",
-        "https://api.zeeguu.unibe.ch",
+        "https://api.zeeguu.org",
+        // Primary (fastest & reliable)
         "https://zeeguu.org",
-        "https://api.zeeguu.org"
+        // Secondary
+        "https://api.zeeguu.unibe.ch",
+        // Fallback 1 (often times out)
+        "https://zeeguu.unibe.ch"
+        // Fallback 2 (often times out)
       ];
       for (const domain of domains) {
         try {
-          console.log(`Attempting login with domain: ${domain}`);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8e3);
           const response = await fetch(`${domain}/session/${email}`, {
             method: "POST",
             headers: {
               "Content-Type": "application/x-www-form-urlencoded",
               "Accept": "application/json"
             },
-            body: `password=${encodeURIComponent(password)}`
+            body: `password=${encodeURIComponent(password)}`,
+            signal: controller.signal
           });
+          clearTimeout(timeoutId);
           if (response.ok) {
             const text = await response.text();
-            const sessionId = text.trim().replace(/[\"']/g, "");
+            let sessionId = text.trim();
+            if (sessionId.startsWith("{")) {
+              try {
+                const json = JSON.parse(sessionId);
+                sessionId = json.session || "";
+              } catch {
+                continue;
+              }
+            } else {
+              sessionId = sessionId.replace(/[\"']/g, "");
+            }
+            if (!sessionId) {
+              continue;
+            }
             await new Promise((resolve) => {
               self.chrome.storage.local.set({
                 zeeguu_session: sessionId,
                 zeeguu_email: email,
-                zeeguu_domain: domain
+                zeeguu_domain: domain,
+                zeeguu_login_time: (/* @__PURE__ */ new Date()).toISOString()
               }, () => {
-                console.log(`Successfully authenticated with ${domain}`);
                 resolve();
               });
             });
@@ -343,9 +376,13 @@
               success: true,
               session: sessionId
             };
+          } else if (response.status === 401 || response.status === 403) {
+            return {
+              success: false,
+              error: "Invalid email or password. Please check your credentials."
+            };
           }
         } catch (e) {
-          console.log(`Domain ${domain} failed:`, e);
           continue;
         }
       }
@@ -354,7 +391,6 @@
         error: "Invalid email or password. Please check your credentials."
       };
     } catch (error) {
-      console.error("Authentication error:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Authentication failed"
@@ -382,6 +418,51 @@
         }
       );
     });
+  }
+  async function getUserLanguages(session) {
+    try {
+      if (!session) {
+        return {
+          success: false,
+          error: "No session provided"
+        };
+      }
+      const sessionData = await getStoredSession();
+      if (!sessionData.success || !sessionData.domain) {
+        return {
+          success: false,
+          error: "No valid session"
+        };
+      }
+      const domain = sessionData.domain;
+      const response = await fetch(`${domain}/user_languages?session=${session}`, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json"
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        let languages = Array.isArray(data) ? data : data.languages || [];
+        if (languages.length === 0) {
+          return {
+            success: true,
+            languages: [{ code: "de", name: "German" }]
+          };
+        }
+        return {
+          success: true,
+          languages
+        };
+      } else {
+        throw new Error(`Failed to fetch user languages. Status: ${response.status}`);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to fetch user languages"
+      };
+    }
   }
   async function clearSession() {
     return new Promise((resolve) => {
