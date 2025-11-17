@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Backdrop</title>
+  <style>
+    html,body { height:100%; margin:0; }
+    body {
+      background: rgba(0,0,0,0.45);
+      -webkit-app-region: drag;
+      user-select: none;
+      cursor: default;
+    }
+    .close-hint {
+      position: absolute;
+      right: 12px;
+      top: 8px;
+      color: #fff;
+      font-size: 12px;
+      background: rgba(0,0,0,0.25);
+      padding: 6px 8px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <script src="overlay_backdrop.js"></script>
+</body>
+</html>
