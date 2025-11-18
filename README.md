@@ -21,7 +21,7 @@ extension/
 │       ├── popup.html           # popup UI with the overlay launcher
 │       ├── popup.ts             # launcher logic (URL presets + inputs)
 │       ├── overlay-backdrop.ts  # translucent backdrop injected into tabs
-│       └── overlay-inject.ts    # helper that mounts the backdrop iframe
+│       └── overlay-inject.ts    # helper that injects the backdrop script bundle
 ├── scripts/copy-static.js       # build helper (bundles & copies to dist/)
 ├── package.json
 └── dist/                        # output folder (gitignored)
