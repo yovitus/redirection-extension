@@ -23,7 +23,9 @@ fs.cpSync(path.join(ROOT, "src/ui/icons"), path.join(dist, "icons"), {
 const esbuildCmds = [
   `npx esbuild src/extension/background.ts --bundle --platform=browser --outfile=dist/background.js`,
   `npx esbuild src/extension/content.ts --bundle --platform=browser --outfile=dist/content.js`,
-  `npx esbuild src/ui/popup.ts --bundle --platform=browser --outfile=dist/popup.js`
+  `npx esbuild src/ui/popup.ts --bundle --platform=browser --outfile=dist/popup.js`,
+  `npx esbuild src/ui/overlay-backdrop.ts --bundle --platform=browser --outfile=dist/overlay-backdrop.js`,
+  `npx esbuild src/ui/overlay-inject.ts --bundle --platform=browser --outfile=dist/overlay-inject.js`
 ];
 
 for (const cmd of esbuildCmds) {
@@ -35,8 +37,6 @@ fs.copyFileSync(path.join(ROOT, "src/ui/popup.html"), path.join(dist, "popup.htm
 
 // Copy overlay backdrop files (used to grey out the originating browser window)
 fs.copyFileSync(path.join(ROOT, "src/ui/overlay-backdrop.html"), path.join(dist, "overlay-backdrop.html"));
-fs.copyFileSync(path.join(ROOT, "src/ui/overlay-backdrop.js"), path.join(dist, "overlay-backdrop.js"));
-// Copy overlay injection script (used to grey out the originating tab)
-fs.copyFileSync(path.join(ROOT, "src/ui/overlay-inject.js"), path.join(dist, "overlay-inject.js"));
+// JS bundles are produced by esbuild (overlay-backdrop.ts & overlay-inject.ts)
 
 console.log("✓ Built to dist/");

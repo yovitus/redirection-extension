@@ -1,12 +1,12 @@
 # Zeeguu Overlay Extension
 
-Single-purpose Chrome extension that opens the preset `https://zeeguu.org/exercises` inside a centered overlay window. The popup is a minimal launcher; the background worker only orchestrates overlay windows and cleans them up.
+Chrome extension that opens any URL you type (plus a preset `https://zeeguu.org/exercises` shortcut) inside a centered overlay window. The popup is a minimal launcher; the background worker only orchestrates overlay windows and cleans them up.
 
 ## Highlights
 
-- 🪟 Opens the URL in a focused overlay window sized to your preference
+- 🪟 Opens arbitrary URLs in a focused overlay window sized to your preference
 - 🔒 Uses the browser’s own session/cookies (no credentials stored in the extension)
-- ⚙️ Built with TypeScript + esbuild, bundled via a single `npm run build`
+- ⚙️ Built entirely with TypeScript + esbuild (background, popup, overlay helpers)
 
 ## Project Layout
 
@@ -15,16 +15,16 @@ extension/
 ├── manifest.json
 ├── src/
 │   ├── extension/
-│   │   ├── background.ts   # overlay window management (service worker)
-│   │   └── content.ts      # minimal stub (unused at the moment)
+│   │   ├── background.ts        # overlay window management (service worker)
+│   │   └── content.ts           # stub for future tab-level communication
 │   └── ui/
-│       ├── popup.html      # popup UI with the overlay launcher
-│       ├── popup.ts        # launcher logic
-│       ├── overlay_backdrop.* / overlay_inject.js # helper assets for overlays
-│       └── utils/…         # (currently empty after cleanup)
-├── scripts/copy-static.js  # build helper (bundles & copies to dist/)
+│       ├── popup.html           # popup UI with the overlay launcher
+│       ├── popup.ts             # launcher logic (URL presets + inputs)
+│       ├── overlay-backdrop.ts  # translucent backdrop injected into tabs
+│       └── overlay-inject.ts    # helper that mounts the backdrop iframe
+├── scripts/copy-static.js       # build helper (bundles & copies to dist/)
 ├── package.json
-└── dist/                   # output folder (gitignored)
+└── dist/                        # output folder (gitignored)
 ```
 
 ## Build & Load
@@ -34,7 +34,7 @@ npm install
 npm run build
 ```
 
-`npm run build` bundles the background, content, and popup TypeScript entry points with esbuild and copies static files into `dist/`.
+`npm run build` bundles the background, content (stub), popup, and overlay helper TypeScript entry points with esbuild and copies static files into `dist/`.
 
 To test locally:
 
@@ -52,7 +52,8 @@ To test locally:
 ## Development Notes
 
 - Update popup UI or logic under `src/ui/popup.*`
-- All overlay logic lives in `src/extension/background.ts`
+- Overlay window orchestration lives in `src/extension/background.ts`
+- The translucent page backdrop + injector live in `src/ui/overlay-backdrop.ts` and `src/ui/overlay-inject.ts` (built alongside the main bundle)
 - When you change anything, re-run `npm run build` and reload the unpacked extension
 
 ## License
