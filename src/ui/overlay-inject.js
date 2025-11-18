@@ -52,6 +52,6 @@
       }
     });
   } catch (e) {
-    console.warn('overlay_inject error', e);
+    console.warn('overlay-inject error', e);
   }
 })();

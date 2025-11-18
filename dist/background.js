@@ -93,7 +93,7 @@
               };
               if (tabId !== null) {
                 try {
-                  chromeApi.scripting.executeScript({ target: { tabId }, files: ["overlay_inject.js"] }, () => {
+                  chromeApi.scripting.executeScript({ target: { tabId }, files: ["overlay-inject.js"] }, () => {
                     injectAndCreate();
                   });
                 } catch (e) {

@@ -116,7 +116,7 @@ async function openOverlayWindow(url: string, width: number, height: number): Pr
                 if (tabId !== null) {
                   // inject helper file that adds a full-page semi-transparent div
                   try {
-                    chromeApi.scripting.executeScript({ target: { tabId }, files: ['overlay_inject.js'] }, () => {
+                    chromeApi.scripting.executeScript({ target: { tabId }, files: ['overlay-inject.js'] }, () => {
                       // ignore injection errors, still create popup
                       injectAndCreate();
                     });

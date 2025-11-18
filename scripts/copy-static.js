@@ -34,9 +34,9 @@ for (const cmd of esbuildCmds) {
 fs.copyFileSync(path.join(ROOT, "src/ui/popup.html"), path.join(dist, "popup.html"));
 
 // Copy overlay backdrop files (used to grey out the originating browser window)
-fs.copyFileSync(path.join(ROOT, "src/ui/overlay_backdrop.html"), path.join(dist, "overlay_backdrop.html"));
-fs.copyFileSync(path.join(ROOT, "src/ui/overlay_backdrop.js"), path.join(dist, "overlay_backdrop.js"));
+fs.copyFileSync(path.join(ROOT, "src/ui/overlay-backdrop.html"), path.join(dist, "overlay-backdrop.html"));
+fs.copyFileSync(path.join(ROOT, "src/ui/overlay-backdrop.js"), path.join(dist, "overlay-backdrop.js"));
 // Copy overlay injection script (used to grey out the originating tab)
-fs.copyFileSync(path.join(ROOT, "src/ui/overlay_inject.js"), path.join(dist, "overlay_inject.js"));
+fs.copyFileSync(path.join(ROOT, "src/ui/overlay-inject.js"), path.join(dist, "overlay-inject.js"));
 
 console.log("✓ Built to dist/");

@@ -13,6 +13,6 @@
       }, { once: true });
     });
   } catch (e) {
-    console.warn('overlay_backdrop script error', e);
+    console.warn('overlay-backdrop script error', e);
   }
 })();
