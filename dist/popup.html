@@ -107,15 +107,16 @@
     <!-- Quick overlay launcher -->
     <div id="overlay-section" style="margin-bottom:16px;">
       <div class="form-group">
-        <label for="overlay-url">Open overlay (uses your browser session)</label>
-        <input type="text" id="overlay-url" placeholder="https://news.ycombinator.com" autofocus>
+        <input type="text" id="overlay-url" placeholder="https://youtube.com" autofocus>
       </div>
-      <button class="btn" id="overlay-open-btn">Open Overlay</button>
-      <div style="height:8px"></div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn-secondary overlay-preset" data-url="https://zeeguu.org/exercises">Zeeguu exercises</button>
-        <button class="btn-secondary overlay-preset" data-url="https://reddit.com">Reddit</button>
-        <button class="btn-secondary overlay-preset" data-url="https://mail.google.com">Gmail</button>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+        <button class="btn-secondary" id="save-site-btn" title="Save site">Save</button>
+      </div>
+
+      <div style="margin-top:8px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;color:#333;">Saved Sites</label>
+        <div id="saved-sites-list" style="display:flex;flex-direction:column;gap:8px;">
+        </div>
       </div>
     </div>
   </div>

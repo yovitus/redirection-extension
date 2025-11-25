@@ -1,8 +1,26 @@
 /**
  * content.ts - Content Script
- * 
- * Minimal content script that runs on web pages.
- * Currently serves as a placeholder for future features.
+ *
+ * Notifies the background service worker when a top-level HTTP(S) page finishes
+ * loading so the background can decide whether to auto-open the overlay for
+ * user-saved sites.
  */
 
-console.log('Zeeguu extension loaded');
+function isTopLevelHttp() {
+	try {
+		return window.top === window && /^https?:\/\//i.test(location.href);
+	} catch (e) {
+		return false;
+	}
+}
+
+if (isTopLevelHttp()) {
+	// Wait for load to ensure the URL is stable
+	window.addEventListener('load', () => {
+		try {
+			(window as any).chrome.runtime.sendMessage({ action: 'pageLoaded', url: location.href }, () => {});
+		} catch (e) {
+			// ignore
+		}
+	}, { once: true });
+}
