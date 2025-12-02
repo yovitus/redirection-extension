@@ -9,6 +9,7 @@ Chrome extension that opens any URL you type (plus a preset `https://zeeguu.org/
 - Built entirely with TypeScript + esbuild (background, popup, overlay helpers)
 - Popup remembers a personal list of domains and re-opens the Zeeguu exercises overlay when you land on matching sites
 - Injects a lightweight translucent backdrop so the originating tab dims while the overlay popup is active
+- Remembers the immediately previous domain per tab, so the overlay stays quiet while you browse multiple pages on the same distraction site and only re-triggers after you leave and come back
 
 ## Project Layout
 
@@ -58,7 +59,7 @@ To test locally:
 
 1. Type or paste any URL (or use a preset button) in the popup; press **Open Overlay** to spawn it immediately.
 2. Use **Save Site** to remember the current host. Saved entries show up as quick-launch links inside the popup.
-3. When you navigate to any saved domain in a normal tab, the background worker automatically opens the Zeeguu exercises overlay (centered and dimming the source tab with the translucent backdrop) so you can dive straight into practice.
+3. When you navigate to any saved domain in a normal tab, the background worker automatically opens the Zeeguu exercises overlay (centered and dimming the source tab with the translucent backdrop) so you can dive straight into practice — it stays silent while you keep hopping between pages on that same domain, and fires again once you detour to a different site and come back.
 4. Remove saved domains anytime from the popup list.
 
 ## Development Notes

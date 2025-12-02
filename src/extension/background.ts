@@ -121,6 +121,17 @@ const overlayTabIds: Set<number> = new Set();
 // Prevent multiple popups for the same tab within a short timeframe
 const recentOpenByTab: Map<number, number> = new Map();
 const RECENT_OPEN_MS = 3000;
+// Track the immediate last domain visited per tab so we can suppress popups only
+// when the user keeps browsing within the same distraction site without switching
+// elsewhere first.
+const lastVisitedDomainByTab: Map<number, string> = new Map();
+
+function normalizeHost(host: string): string {
+  if (!host) return '';
+  const trimmed = host.trim().toLowerCase();
+  const noPort = trimmed.split(':')[0];
+  return noPort.startsWith('www.') ? noPort.slice(4) : noPort;
+}
 
 // When a popup window is removed, tell the originating tab to remove the injected overlay
 (self as any).chrome.windows.onRemoved.addListener((windowId: number) => {
@@ -139,6 +150,13 @@ const RECENT_OPEN_MS = 3000;
   }
 });
 
+(self as any).chrome.tabs.onRemoved.addListener((tabId: number) => {
+  try {
+    lastVisitedDomainByTab.delete(tabId);
+    recentOpenByTab.delete(tabId);
+  } catch (e) {}
+});
+
 // Also listen for tab navigations as a fallback (some sites / reload flows may not
 // trigger the content script message). When a tab finishes loading, check saved
 // sites and open the Zeeguu exercises popup if there's a match.
@@ -152,6 +170,18 @@ const RECENT_OPEN_MS = 3000;
     const url = (changeInfo && changeInfo.url) ? changeInfo.url : (tab && tab.url ? tab.url : null);
     if (!url || !/^https?:\/\//i.test(url)) return;
     if (overlayTabIds.has(tabId)) return; // ignore tabs that are our popups
+    let normalizedPageHost = '';
+    try {
+      const pageUrlObj = new URL(url);
+      normalizedPageHost = normalizeHost(pageUrlObj.hostname);
+    } catch (e) {
+      normalizedPageHost = '';
+    }
+    if (!normalizedPageHost) {
+      lastVisitedDomainByTab.delete(tabId);
+      return;
+    }
+    const previousHost = lastVisitedDomainByTab.get(tabId) || null;
     // ignore rapid repeats for the same tab
     const last = recentOpenByTab.get(tabId) || 0;
     if (Date.now() - last < RECENT_OPEN_MS) return;
@@ -160,8 +190,9 @@ const RECENT_OPEN_MS = 3000;
     chromeApi.storage && chromeApi.storage.local && chromeApi.storage.local.get(['savedSites'], (res: any) => {
       try {
         const sites = (res && Array.isArray(res.savedSites)) ? res.savedSites : [];
-        let pageUrlObj: URL | null = null;
-        try { pageUrlObj = new URL(url); } catch (e) { pageUrlObj = null; }
+        const setLastVisited = () => {
+          try { lastVisitedDomainByTab.set(tabId, normalizedPageHost); } catch (e) {}
+        };
 
         // normalize and dedupe saved matches
         const seen = new Set<string>();
@@ -195,16 +226,30 @@ const RECENT_OPEN_MS = 3000;
             }
 
             if (!savedHost) continue;
-            const pageHost = pageUrlObj ? pageUrlObj.hostname.toLowerCase() : (new URL(url)).hostname.toLowerCase();
-            if (pageHost === savedHost || pageHost.endsWith('.' + savedHost)) {
-              // Domain match only — open the hardcoded Zeeguu exercises popup
-              openOverlayWindow('https://zeeguu.org/exercises', 900, 700, tabId).catch(() => {});
-              recentOpenByTab.set(tabId, Date.now());
+            const normalizedSavedHost = normalizeHost(savedHost);
+            if (!normalizedSavedHost) continue;
+
+            const domainMatches = normalizedPageHost === normalizedSavedHost ||
+              normalizedPageHost.endsWith('.' + normalizedSavedHost);
+            if (!domainMatches) continue;
+
+            if (previousHost && previousHost === normalizedSavedHost) {
+              setLastVisited();
               return;
             }
+
+            // Domain match only — open the hardcoded Zeeguu exercises popup
+            openOverlayWindow('https://zeeguu.org/exercises', 900, 700, tabId).catch(() => {});
+            recentOpenByTab.set(tabId, Date.now());
+            setLastVisited();
+            return;
           } catch (e) {}
         }
-      } catch (e) {}
+
+        setLastVisited();
+      } catch (e) {
+        try { lastVisitedDomainByTab.set(tabId, normalizedPageHost); } catch (err) {}
+      }
     });
   } catch (e) {}
 });
