@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Zeeguu Learning",
+  "name": "Focular",
   "version": "0.1.0",
-  "description": "Learn languages with Zeeguu directly in your browser",
+  "description": "Learn languages via Zeeguu directly in your browser with Focular",
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

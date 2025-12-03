@@ -113,6 +113,14 @@
   var overlayTabIds = /* @__PURE__ */ new Set();
   var recentOpenByTab = /* @__PURE__ */ new Map();
   var RECENT_OPEN_MS = 3e3;
+  var lastVisitedDomainByTab = /* @__PURE__ */ new Map();
+  function normalizeHost(host) {
+    if (!host)
+      return "";
+    const trimmed = host.trim().toLowerCase();
+    const noPort = trimmed.split(":")[0];
+    return noPort.startsWith("www.") ? noPort.slice(4) : noPort;
+  }
   self.chrome.windows.onRemoved.addListener((windowId) => {
     try {
       const chromeApi = self.chrome;
@@ -133,6 +141,13 @@
       console.warn("onRemoved cleanup error", e);
     }
   });
+  self.chrome.tabs.onRemoved.addListener((tabId) => {
+    try {
+      lastVisitedDomainByTab.delete(tabId);
+      recentOpenByTab.delete(tabId);
+    } catch (e) {
+    }
+  });
   self.chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     try {
       if (!changeInfo || changeInfo.status !== "complete")
@@ -147,18 +162,30 @@
         return;
       if (overlayTabIds.has(tabId))
         return;
+      let normalizedPageHost = "";
+      try {
+        const pageUrlObj = new URL(url);
+        normalizedPageHost = normalizeHost(pageUrlObj.hostname);
+      } catch (e) {
+        normalizedPageHost = "";
+      }
+      if (!normalizedPageHost) {
+        lastVisitedDomainByTab.delete(tabId);
+        return;
+      }
+      const previousHost = lastVisitedDomainByTab.get(tabId) || null;
       const last = recentOpenByTab.get(tabId) || 0;
       if (Date.now() - last < RECENT_OPEN_MS)
         return;
       chromeApi.storage && chromeApi.storage.local && chromeApi.storage.local.get(["savedSites"], (res) => {
         try {
           const sites = res && Array.isArray(res.savedSites) ? res.savedSites : [];
-          let pageUrlObj = null;
-          try {
-            pageUrlObj = new URL(url);
-          } catch (e) {
-            pageUrlObj = null;
-          }
+          const setLastVisited = () => {
+            try {
+              lastVisitedDomainByTab.set(tabId, normalizedPageHost);
+            } catch (e) {
+            }
+          };
           const seen = /* @__PURE__ */ new Set();
           const normalizedSites = [];
           for (const s of sites) {
@@ -190,17 +217,30 @@
               }
               if (!savedHost)
                 continue;
-              const pageHost = pageUrlObj ? pageUrlObj.hostname.toLowerCase() : new URL(url).hostname.toLowerCase();
-              if (pageHost === savedHost || pageHost.endsWith("." + savedHost)) {
-                openOverlayWindow("https://zeeguu.org/exercises", 900, 700, tabId).catch(() => {
-                });
-                recentOpenByTab.set(tabId, Date.now());
+              const normalizedSavedHost = normalizeHost(savedHost);
+              if (!normalizedSavedHost)
+                continue;
+              const domainMatches = normalizedPageHost === normalizedSavedHost || normalizedPageHost.endsWith("." + normalizedSavedHost);
+              if (!domainMatches)
+                continue;
+              if (previousHost && previousHost === normalizedSavedHost) {
+                setLastVisited();
                 return;
               }
+              openOverlayWindow("https://zeeguu.org/exercises", 900, 700, tabId).catch(() => {
+              });
+              recentOpenByTab.set(tabId, Date.now());
+              setLastVisited();
+              return;
             } catch (e) {
             }
           }
+          setLastVisited();
         } catch (e) {
+          try {
+            lastVisitedDomainByTab.set(tabId, normalizedPageHost);
+          } catch (err) {
+          }
         }
       });
     } catch (e) {
