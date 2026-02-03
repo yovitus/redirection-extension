@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zeeguu Learning</title>
+  <title>Website List</title>
   <style>
     * {
       margin: 0;
@@ -14,30 +14,25 @@
       width: 450px;
       padding: 20px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: #333;
+      background: #f7f7f8;
+      color: #222;
     }
     .container {
       background: white;
       border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
       padding: 24px;
     }
     h1 {
-      font-size: 28px;
-      font-weight: bold;
-      text-align: center;
-      margin-bottom: 8px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      font-size: 20px;
+      font-weight: 600;
+      text-align: left;
+      margin-bottom: 6px;
     }
     .subtitle {
-      text-align: center;
       color: #666;
-      font-size: 14px;
-      margin-bottom: 20px;
+      font-size: 13px;
+      margin-bottom: 16px;
     }
     .form-group {
       margin-bottom: 16px;
@@ -58,66 +53,47 @@
     }
     .form-group input:focus {
       outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      border-color: #4f7cff;
+      box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.1);
     }
     .btn {
       width: 100%;
-      padding: 12px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 10px;
+      background: #4f7cff;
       color: white;
       border: none;
       border-radius: 4px;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
     }
     .btn:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      background: #3f6ff0;
     }
     .btn:disabled {
       opacity: 0.6;
       cursor: not-allowed;
     }
-    .btn-secondary {
-      width: 100%;
-      padding: 12px;
-      background: #f5f5f5;
-      color: #333;
-      border: 2px solid #ddd;
-      border-radius: 4px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-    .btn-secondary:hover {
-      background: #efefef;
-      border-color: #667eea;
-      color: #667eea;
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🌍 Focular</h1>
-    <p class="subtitle">Why procrastinate when you can learn a language</p>
-    <!-- Quick overlay launcher -->
-    <div id="overlay-section" style="margin-bottom:16px;">
-      <div class="form-group">
-        <input type="text" id="overlay-url" placeholder="https://youtube.com" autofocus>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-        <button class="btn-secondary" id="save-site-btn" title="Save site">Save</button>
-      </div>
+    <h1>Website list</h1>
+    <p class="subtitle">Add websites you want to keep track of.</p>
+    <div class="form-group">
+      <input type="text" id="overlay-url" placeholder="example.com" autofocus>
+    </div>
+    <button class="btn" id="save-site-btn" title="Save site">Save website</button>
 
-      <div style="margin-top:8px;">
-        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;color:#333;">Saved Sites</label>
-        <div id="saved-sites-list" style="display:flex;flex-direction:column;gap:8px;">
-        </div>
-      </div>
+    <div style="margin-top:12px;">
+      <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;color:#333;">Saved websites</label>
+      <div id="saved-sites-list" class="list"></div>
     </div>
   </div>
 

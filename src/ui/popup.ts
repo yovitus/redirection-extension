@@ -1,8 +1,7 @@
 /**
- * popup.ts - Overlay launcher only
+ * popup.ts
  *
- * Minimal controller that focuses the URL input and sends an `openOverlay` message
- * to the background service worker. The popup itself then closes.
+ * Minimal controller for storing and listing websites.
  */
 
 // Use chrome from window to avoid duplicate ambient declarations
@@ -17,34 +16,7 @@ window.addEventListener('DOMContentLoaded', () => {
 function setupOverlayUI() {
 	try {
 		const urlInput = document.getElementById('overlay-url') as HTMLInputElement | null;
-		const openBtn = document.getElementById('overlay-open-btn') as HTMLButtonElement | null;
 		const saveBtn = document.getElementById('save-site-btn') as HTMLButtonElement | null;
-
-		if (openBtn && urlInput) {
-			openBtn.addEventListener('click', () => {
-				let url = (urlInput.value || '').trim();
-				if (!url) return;
-				if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-
-				try {
-					if (chromeApi && chromeApi.runtime && chromeApi.runtime.sendMessage) {
-						chromeApi.runtime.sendMessage({ action: 'openOverlay', url, width: 900, height: 700 }, (resp: any) => {
-							try { window.close(); } catch {}
-						});
-					} else {
-						try { window.close(); } catch {}
-					}
-				} catch (e) {
-					try { window.close(); } catch {}
-				}
-			});
-
-			urlInput.addEventListener('keydown', (ev) => {
-				if ((ev as KeyboardEvent).key === 'Enter') {
-					openBtn.click();
-				}
-			});
-		}
 
 		if (saveBtn && urlInput) {
 			saveBtn.addEventListener('click', async () => {
@@ -131,22 +103,11 @@ async function renderSavedSites() {
 			row.style.border = '1px solid #eee';
 			row.style.borderRadius = '6px';
 
-			const a = document.createElement('a');
-			a.href = '#';
+			const label = document.createElement('div');
 			const display = (s.open ? s.open : s.match) || '';
-			a.textContent = String(display).replace(/^https?:\/\//i, '');
-			a.style.color = '#333';
-			a.style.textDecoration = 'none';
-			a.style.flex = '1';
-			a.addEventListener('click', (ev) => {
-				ev.preventDefault();
-				try {
-					const toOpen = s.open ? s.open : (/^https?:\/\//i.test(s.match) ? s.match : 'https://' + s.match);
-					chromeApi.runtime.sendMessage({ action: 'openOverlay', url: toOpen, width: 900, height: 700 }, (resp: any) => {
-						try { window.close(); } catch {}
-					});
-				} catch (e) { }
-			});
+			label.textContent = String(display).replace(/^https?:\/\//i, '');
+			label.style.color = '#333';
+			label.style.flex = '1';
 
 			const del = document.createElement('button');
 			del.textContent = 'Remove';
@@ -168,7 +129,7 @@ async function renderSavedSites() {
 				}
 			});
 
-			row.appendChild(a);
+			row.appendChild(label);
 			row.appendChild(del);
 			listEl.appendChild(row);
 		});

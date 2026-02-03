@@ -21,11 +21,7 @@ fs.cpSync(path.join(ROOT, "src/ui/icons"), path.join(dist, "icons"), {
 
 // Run esbuild commands
 const esbuildCmds = [
-  `npx esbuild src/extension/background.ts --bundle --platform=browser --outfile=dist/background.js`,
-  `npx esbuild src/extension/content.ts --bundle --platform=browser --outfile=dist/content.js`,
-  `npx esbuild src/ui/popup.ts --bundle --platform=browser --outfile=dist/popup.js`,
-  `npx esbuild src/ui/overlay-backdrop.ts --bundle --platform=browser --outfile=dist/overlay-backdrop.js`,
-  `npx esbuild src/ui/overlay-inject.ts --bundle --platform=browser --outfile=dist/overlay-inject.js`
+  `npx esbuild src/ui/popup.ts --bundle --platform=browser --outfile=dist/popup.js`
 ];
 
 for (const cmd of esbuildCmds) {
@@ -34,9 +30,5 @@ for (const cmd of esbuildCmds) {
 
 // Copy popup.html
 fs.copyFileSync(path.join(ROOT, "src/ui/popup.html"), path.join(dist, "popup.html"));
-
-// Copy overlay backdrop files (used to grey out the originating browser window)
-fs.copyFileSync(path.join(ROOT, "src/ui/overlay-backdrop.html"), path.join(dist, "overlay-backdrop.html"));
-// JS bundles are produced by esbuild (overlay-backdrop.ts & overlay-inject.ts)
 
 console.log("✓ Built to dist/");
