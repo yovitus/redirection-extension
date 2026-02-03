@@ -34,6 +34,21 @@
       font-size: 13px;
       margin-bottom: 16px;
     }
+    .section {
+      margin-top: 16px;
+    }
+    .section-title {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #333;
+    }
+    .help-text {
+      color: #666;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
     .form-group {
       margin-bottom: 16px;
     }
@@ -93,20 +108,37 @@
       border-color: #667eea;
       color: #667eea;
     }
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Focular</h1>
-    <p class="subtitle">Add websites to list</p>
-    <div class="form-group">
-      <input type="text" id="overlay-url" placeholder="example.com" autofocus>
-    </div>
-    <button class="btn" id="save-site-btn" title="Save site">Save website</button>
+    <p class="subtitle">Choose where the overlay appears and what it shows.</p>
 
-    <div style="margin-top:12px;">
-      <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;color:#333;">Saved websites</label>
-      <div id="saved-sites-list" class="list"></div>
+    <div class="section">
+      <label class="section-title" for="trigger-url">Trigger websites</label>
+      <p class="help-text">Pages that should show the game overlay. Example: example.com</p>
+      <div class="form-group">
+        <input type="text" id="trigger-url" placeholder="example.com" autocomplete="off" autofocus>
+      </div>
+      <button class="btn" id="save-trigger-btn" title="Add trigger site">Add trigger site</button>
+      <div id="trigger-sites-list" class="list"></div>
+    </div>
+
+    <div class="section">
+      <label class="section-title" for="game-url">Game URLs</label>
+      <p class="help-text">Full URLs loaded in the iframe. Example: https://example.com/game</p>
+      <div class="form-group">
+        <input type="text" id="game-url" placeholder="https://example.com/game" autocomplete="off">
+      </div>
+      <button class="btn" id="save-game-btn" title="Add game URL">Add game URL</button>
+      <div id="game-sites-list" class="list"></div>
     </div>
   </div>
 
