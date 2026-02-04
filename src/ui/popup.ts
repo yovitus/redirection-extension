@@ -11,8 +11,14 @@ const chromeApi: any = (window as any).chrome;
 
 window.addEventListener('DOMContentLoaded', () => {
 	setupLists();
+	setupDelayButtons();
+	setupPopupToggle();
+	setupStorageListener();
 	focusInput('trigger-url');
 	renderAllLists();
+	renderDelayButtons();
+	renderPopupToggle();
+	renderDelayTimer();
 });
 
 type ListKey = 'triggerSites';
@@ -93,6 +99,121 @@ async function renderAllLists() {
 	}
 }
 
+// Bind UI events for the delay option buttons.
+function setupDelayButtons() {
+	const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.delay-btn'));
+	buttons.forEach((button) => {
+		button.addEventListener('click', async () => {
+			const raw = button.dataset.delay;
+			const delayMs = raw ? Number(raw) : 0;
+			if (!Number.isFinite(delayMs)) return;
+			try {
+				const current = await getPopupDelayMs();
+				const nextDelay = current === delayMs ? null : delayMs;
+				await setPopupDelayMs(nextDelay);
+				renderDelayButtons();
+				renderPopupToggle();
+			} catch (e) {
+				console.warn('Failed to save delay', e);
+			}
+		});
+	});
+}
+
+// Bind UI events for enabling/disabling popup logic.
+function setupPopupToggle() {
+	const input = document.getElementById('popup-enabled') as HTMLInputElement | null;
+	if (!input) return;
+	input.addEventListener('change', async () => {
+		try {
+			await setPopupEnabled(input.checked);
+			renderPopupToggle();
+			renderDelayButtons();
+		} catch (e) {
+			console.warn('Failed to toggle popup', e);
+		}
+	});
+}
+
+// Render the selected delay button state.
+async function renderDelayButtons() {
+	const [currentDelay, enabled] = await Promise.all([getPopupDelayMs(), getPopupEnabled()]);
+	const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.delay-btn'));
+	buttons.forEach((button) => {
+		const raw = button.dataset.delay;
+		const delayMs = raw ? Number(raw) : 0;
+		const isActive = Number.isFinite(delayMs) && currentDelay !== null && delayMs === currentDelay;
+		button.classList.toggle('active', isActive);
+		button.disabled = enabled;
+	});
+}
+
+// Render the popup enabled toggle and disabled state styling.
+async function renderPopupToggle() {
+	const [enabled, currentDelay] = await Promise.all([getPopupEnabled(), getPopupDelayMs()]);
+	const delayChosen = currentDelay !== null && Number.isFinite(currentDelay);
+	const input = document.getElementById('popup-enabled') as HTMLInputElement | null;
+	if (input) {
+		input.checked = enabled;
+		input.disabled = !delayChosen;
+	}
+
+	const settings = document.getElementById('popup-settings');
+	if (settings) {
+		settings.classList.toggle('settings-disabled', !enabled);
+	}
+}
+
+// Render countdown/status for the delay timer.
+async function renderDelayTimer() {
+	const [delayMs, enabled, delayState] = await Promise.all([
+		getPopupDelayMs(),
+		getPopupEnabled(),
+		getDelayState(),
+	]);
+
+	const timerEl = document.getElementById('delay-timer');
+	const labelEl = document.getElementById('delay-timer-label');
+	const valueEl = document.getElementById('delay-timer-value');
+	if (!timerEl || !labelEl || !valueEl) return;
+
+	if (!delayMs || delayMs <= 0) {
+		timerEl.classList.add('hidden');
+		stopTimerInterval();
+		return;
+	}
+
+	timerEl.classList.remove('hidden');
+
+	if (!enabled) {
+		labelEl.textContent = 'Timer disabled';
+		valueEl.textContent = '--:--';
+		stopTimerInterval();
+		return;
+	}
+
+	const phase = delayState?.phase || 'idle';
+	const startAt = typeof delayState?.startAt === 'number' ? delayState.startAt : null;
+	const elapsed = startAt ? Date.now() - startAt : 0;
+	const remaining = Math.max(0, delayMs - elapsed);
+
+	if (phase === 'running') {
+		labelEl.textContent = 'Time remaining';
+		valueEl.textContent = formatMs(remaining);
+		startTimerInterval();
+		return;
+	}
+
+	if (phase === 'cooldown') {
+		labelEl.textContent = 'Timer complete';
+		valueEl.textContent = 'Waiting for next trigger';
+	} else {
+		labelEl.textContent = 'Starts on trigger';
+		valueEl.textContent = formatMs(delayMs);
+	}
+	stopTimerInterval();
+}
+
 // Normalize trigger site input for consistent matching.
 function normalizeTriggerSite(value: string): string {
 	return value.trim().replace(/\/+$/, '');
@@ -132,6 +253,120 @@ function setList(key: ListKey, list: string[]): Promise<void> {
 	return new Promise((resolve, reject) => {
 		try {
 			chromeApi.storage.local.set({ [key]: list }, () => {
+				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
+				resolve();
+			});
+		} catch (e) {
+			reject(e);
+		}
+	});
+}
+
+// Load the currently selected popup delay.
+function getPopupDelayMs(): Promise<number | null> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.get(['popupDelayMs'], (res: any) => {
+				const value = res?.popupDelayMs;
+				resolve(typeof value === 'number' ? value : null);
+			});
+		} catch (e) {
+			resolve(null);
+		}
+	});
+}
+
+// Load whether the popup logic is enabled.
+function getPopupEnabled(): Promise<boolean> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.get(['popupEnabled'], (res: any) => {
+				resolve(res?.popupEnabled === true);
+			});
+		} catch (e) {
+			resolve(false);
+		}
+	});
+}
+
+// Persist the popup enabled toggle.
+function setPopupEnabled(enabled: boolean): Promise<void> {
+	return new Promise((resolve, reject) => {
+		try {
+			chromeApi.storage.local.set({ popupEnabled: enabled }, () => {
+				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
+				resolve();
+			});
+		} catch (e) {
+			reject(e);
+		}
+	});
+}
+
+// Read delay state from session/local storage.
+function getDelayState(): Promise<{ phase?: string; startAt?: number } | null> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.get(['delayState'], (res: any) => {
+				if (res?.delayState) return resolve(res.delayState);
+				const session = chromeApi.storage?.session;
+				if (session?.get) {
+					session.get(['delayState'], (fallback: any) => {
+						resolve(fallback?.delayState ?? null);
+					});
+					return;
+				}
+				resolve(null);
+			});
+		} catch (e) {
+			resolve(null);
+		}
+	});
+}
+
+// Listen to storage changes to keep UI in sync.
+function setupStorageListener() {
+	try {
+		chromeApi.storage.onChanged.addListener((changes: any, area: string) => {
+			if (area !== 'local' && area !== 'session') return;
+			if (changes.popupDelayMs || changes.popupEnabled || changes.delayState) {
+				renderDelayButtons();
+				renderPopupToggle();
+				renderDelayTimer();
+			}
+		});
+	} catch (e) {}
+}
+
+let timerIntervalId: number | null = null;
+
+function startTimerInterval() {
+	if (timerIntervalId !== null) return;
+	timerIntervalId = window.setInterval(() => {
+		renderDelayTimer();
+	}, 1000);
+}
+
+function stopTimerInterval() {
+	if (timerIntervalId === null) return;
+	window.clearInterval(timerIntervalId);
+	timerIntervalId = null;
+}
+
+function formatMs(ms: number): string {
+	const totalSeconds = Math.ceil(ms / 1000);
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	const mm = String(minutes).padStart(2, '0');
+	const ss = String(seconds).padStart(2, '0');
+	return `${mm}:${ss}`;
+}
+
+// Persist the popup delay selection.
+function setPopupDelayMs(delayMs: number | null): Promise<void> {
+	return new Promise((resolve, reject) => {
+		try {
+			chromeApi.storage.local.set({ popupDelayMs: delayMs }, () => {
 				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
 				resolve();
 			});
