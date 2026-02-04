@@ -1,7 +1,8 @@
 /**
- * Shared list helpers for popup + content script.
+ * Shared list helpers for popup + background.
  */
 
+// Normalize stored list entries into plain trimmed strings.
 export function normalizeStoredList(value: any): string[] {
 	if (!Array.isArray(value)) return [];
 	return value

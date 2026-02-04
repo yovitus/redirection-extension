@@ -22,7 +22,8 @@ fs.cpSync(path.join(ROOT, "src/ui/icons"), path.join(dist, "icons"), {
 // Run esbuild commands
 const esbuildCmds = [
   `npx esbuild src/ui/popup.ts --bundle --platform=browser --outfile=dist/popup.js`,
-  `npx esbuild src/ui/overlay-inject.ts --bundle --platform=browser --outfile=dist/overlay-inject.js`
+  `npx esbuild src/ui/overlay-inject.ts --bundle --platform=browser --outfile=dist/overlay-inject.js`,
+  `npx esbuild src/extension/background.ts --bundle --platform=browser --outfile=dist/background.js`
 ];
 
 for (const cmd of esbuildCmds) {

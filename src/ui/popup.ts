@@ -1,7 +1,7 @@
 /**
  * popup.ts
  *
- * Popup controller for managing trigger sites and game URLs.
+ * Popup controller for managing trigger sites.
  */
 
 import { normalizeStoredList } from './utils/list-utils';
@@ -15,7 +15,7 @@ window.addEventListener('DOMContentLoaded', () => {
 	renderAllLists();
 });
 
-type ListKey = 'triggerSites' | 'gameUrls';
+type ListKey = 'triggerSites';
 
 type ListConfig = {
 	key: ListKey;
@@ -27,6 +27,7 @@ type ListConfig = {
 	display?: (value: string) => string;
 };
 
+// Configuration for popup lists.
 const LISTS: ListConfig[] = [
 	{
 		key: 'triggerSites',
@@ -37,17 +38,9 @@ const LISTS: ListConfig[] = [
 		normalize: normalizeTriggerSite,
 		display: (value) => value.replace(/^https?:\/\//i, ''),
 	},
-	{
-		key: 'gameUrls',
-		inputId: 'game-url',
-		buttonId: 'save-game-btn',
-		listId: 'game-sites-list',
-		emptyText: 'No game URLs yet - add at least one above.',
-		normalize: normalizeGameUrl,
-		display: (value) => value.replace(/^https?:\/\//i, ''),
-	},
 ];
 
+// Bind UI events for adding items to each list.
 function setupLists() {
 	LISTS.forEach((config) => {
 		const input = document.getElementById(config.inputId) as HTMLInputElement | null;
@@ -82,6 +75,7 @@ function setupLists() {
 	});
 }
 
+// Focus and select the primary input on load.
 function focusInput(id: string) {
 	try {
 		const el = document.getElementById(id) as HTMLInputElement | null;
@@ -92,24 +86,19 @@ function focusInput(id: string) {
 	} catch (e) {}
 }
 
+// Render all configured lists in the popup.
 async function renderAllLists() {
 	for (const config of LISTS) {
 		await renderList(config);
 	}
 }
 
+// Normalize trigger site input for consistent matching.
 function normalizeTriggerSite(value: string): string {
 	return value.trim().replace(/\/+$/, '');
 }
 
-function normalizeGameUrl(value: string): string {
-	let normalized = value.trim();
-	if (!/^https?:\/\//i.test(normalized)) {
-		normalized = `https://${normalized}`;
-	}
-	return normalized;
-}
-
+// Remove duplicates while preserving order.
 function dedupe(values: string[]): string[] {
 	const seen = new Set<string>();
 	const output: string[] = [];
@@ -121,6 +110,7 @@ function dedupe(values: string[]): string[] {
 	return output;
 }
 
+// Load a list from chrome storage (with legacy fallback).
 function getList(key: ListKey): Promise<string[]> {
 	return new Promise((resolve) => {
 		try {
@@ -137,6 +127,7 @@ function getList(key: ListKey): Promise<string[]> {
 	});
 }
 
+// Persist a list to chrome storage.
 function setList(key: ListKey, list: string[]): Promise<void> {
 	return new Promise((resolve, reject) => {
 		try {
@@ -150,6 +141,7 @@ function setList(key: ListKey, list: string[]): Promise<void> {
 	});
 }
 
+// Render a single list section in the UI.
 async function renderList(config: ListConfig) {
 	try {
 		const listEl = document.getElementById(config.listId);
