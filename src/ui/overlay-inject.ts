@@ -5,6 +5,7 @@
  */
 
 const chromeApi: any = (window as any).chrome;
+const windowAny: any = window as any;
 
 const OVERLAY_ID = 'focular-dim-overlay';
 const GAME_URL = 'https://minigamegpt.com/en/games/sudoku/';
@@ -14,10 +15,13 @@ init();
 // Start content script behavior on page load.
 function init() {
 	if (!chromeApi?.runtime) return;
+	if (windowAny.__focularOverlayInjected) return;
+	windowAny.__focularOverlayInjected = true;
 	if (window.top !== window) return;
 	if (isGameWindow()) return;
 
 	listenForMessages();
+	announceOverlayReady();
 }
 
 // Listen for background commands to show/hide the dim overlay.
@@ -32,6 +36,13 @@ function listenForMessages() {
 				hideDimOverlay();
 			}
 		});
+	} catch (e) {}
+}
+
+// Notify the background script that the overlay can be shown on this tab.
+function announceOverlayReady() {
+	try {
+		chromeApi.runtime.sendMessage({ type: 'overlay-ready' });
 	} catch (e) {}
 }
 
