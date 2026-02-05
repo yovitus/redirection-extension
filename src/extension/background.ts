@@ -19,6 +19,7 @@ const POPUP_MAX_WIDTH = 1100;
 const POPUP_MIN_HEIGHT = 480;
 const POPUP_MAX_HEIGHT = 820;
 const POPUP_ZOOM = 0.9;
+const BREAK_THRESHOLD_MS = 2 * 60 * 1000;
 
 let cachedTriggerSites: string[] = [];
 let popupWindowId: number | null = null;
@@ -59,6 +60,7 @@ init();
 // Bootstrap background listeners and cache.
 function init() {
 	if (!chromeApi?.storage) return;
+	delayManager.setBreakThresholdMs(BREAK_THRESHOLD_MS);
 	refreshSettings();
 	watchStorage();
 	watchMessages();
@@ -88,8 +90,33 @@ function watchMessages() {
 			if (message.type === 'dismiss-popup') {
 				closePopup();
 			}
+			if (message.type === 'overlay-ready') {
+				handleOverlayReady(sender);
+			}
 		});
 	} catch (e) {}
+}
+
+// Ensure the dim overlay is shown when a content script becomes ready.
+function handleOverlayReady(sender: any) {
+	if (popupWindowId) {
+		const tabId = sender?.tab?.id;
+		if (tabId) {
+			try {
+				chromeApi.tabs.sendMessage(tabId, { type: 'show-dim' }, () => {});
+			} catch (e) {}
+		}
+		return;
+	}
+
+	findExistingPopupWindow()
+		.then((existingId) => {
+			if (!existingId) return;
+			popupWindowId = existingId;
+			applyPopupZoom(popupWindowId);
+			showDimAllTabs();
+		})
+		.catch(() => {});
 }
 
 // Watch tab navigation to open popups and dim new tabs.
@@ -191,6 +218,40 @@ function refreshActiveTab() {
 	} catch (e) {}
 }
 
+// Query the active tab and compute whether it is a trigger site.
+function getActiveTriggerState(): Promise<boolean> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.tabs.query({ active: true, lastFocusedWindow: true }, (tabs: any[]) => {
+				const tab = tabs && tabs.length > 0 ? tabs[0] : null;
+				if (tab) {
+					currentActiveTabId = tab.id ?? currentActiveTabId;
+					currentActiveTabUrl = tab.url ?? currentActiveTabUrl;
+					currentActiveTabWindowId = tab.windowId ?? currentActiveTabWindowId;
+					if (!popupWindowId || tab.windowId !== popupWindowId) {
+						lastNonPopupUrl = tab.url ?? lastNonPopupUrl;
+					}
+				}
+
+				const isPopupTab = popupWindowId && currentActiveTabWindowId === popupWindowId;
+				if (isPopupTab && !lastNonPopupUrl) {
+					lastNonPopupUrl = currentVisitedUrl;
+				}
+				const href = isPopupTab ? lastNonPopupUrl : currentActiveTabUrl;
+				if (!href) return resolve(currentVisitedIsTrigger);
+
+				const isTrigger = !!findMatchKey(href, cachedTriggerSites);
+				currentVisitedUrl = href;
+				currentVisitedIsTrigger = isTrigger;
+				persistNavState();
+				resolve(isTrigger);
+			});
+		} catch (e) {
+			resolve(currentVisitedIsTrigger);
+		}
+	});
+}
+
 // Wake on alarm to complete the delay timer.
 function watchAlarms() {
 	try {
@@ -198,7 +259,8 @@ function watchAlarms() {
 			if (!alarm?.name) return;
 			navQueue = navQueue.then(async () => {
 				await ensureNavStateLoaded();
-				delayManager.handleAlarm(alarm.name);
+				const isTrigger = await getActiveTriggerState();
+				delayManager.handleAlarm(alarm.name, isTrigger);
 			});
 		});
 	} catch (e) {}
@@ -247,7 +309,24 @@ function updateActiveContext() {
 		persistNavState();
 
 		delayManager.updateContext(isTrigger);
+		if (popupWindowId && isTrigger) {
+			ensureDimOnActiveTab();
+		}
 	});
+}
+
+// Ensure the active tab shows the dim overlay when a popup is open.
+function ensureDimOnActiveTab() {
+	if (!currentActiveTabId) return;
+	if (popupWindowId && currentActiveTabWindowId === popupWindowId) return;
+	try {
+		chromeApi.tabs.sendMessage(currentActiveTabId, { type: 'show-dim' }, () => {
+			const err = chromeApi.runtime.lastError;
+			if (err) {
+				ensureOverlayInjected({ id: currentActiveTabId, url: currentActiveTabUrl });
+			}
+		});
+	} catch (e) {}
 }
 
 // Match current URL against saved trigger patterns.
@@ -373,11 +452,34 @@ function broadcastToTabs(message: any) {
 				try {
 					chromeApi.tabs.sendMessage(tab.id, message, () => {
 						const err = chromeApi.runtime.lastError;
-						if (err) return;
+						if (err && message?.type === 'show-dim') {
+							ensureOverlayInjected(tab);
+						}
 					});
 				} catch (e) {}
 			});
 		});
+	} catch (e) {}
+}
+
+// Inject the overlay content script if the tab has no listener.
+function ensureOverlayInjected(tab: any) {
+	try {
+		if (!chromeApi.scripting?.executeScript) return;
+		const url = typeof tab?.url === 'string' ? tab.url : '';
+		if (!/^https?:/i.test(url)) return;
+		chromeApi.scripting.executeScript(
+			{
+				target: { tabId: tab.id },
+				files: ['overlay-inject.js'],
+			},
+			() => {
+				if (chromeApi.runtime.lastError) return;
+				try {
+					chromeApi.tabs.sendMessage(tab.id, { type: 'show-dim' }, () => {});
+				} catch (e) {}
+			},
+		);
 	} catch (e) {}
 }
 

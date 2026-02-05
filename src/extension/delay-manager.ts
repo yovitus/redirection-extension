@@ -9,6 +9,7 @@ type DelayPhase = 'idle' | 'running' | 'cooldown';
 type DelayState = {
 	phase: DelayPhase;
 	startAt: number | null;
+	breakStartAt: number | null;
 	lastIsTrigger: boolean;
 };
 
@@ -25,11 +26,13 @@ export function createDelayManager(deps: DelayManagerDeps) {
 	const now = deps.now ?? (() => Date.now());
 
 	let delayMs = 0;
+	let breakThresholdMs = 2 * 60 * 1000;
 	let enabled = true;
 
 	let state: DelayState = {
 		phase: 'idle',
 		startAt: null,
+		breakStartAt: null,
 		lastIsTrigger: false,
 	};
 
@@ -53,6 +56,12 @@ export function createDelayManager(deps: DelayManagerDeps) {
 		if (!enabled) {
 			resetState();
 		}
+	}
+
+	function setBreakThresholdMs(nextMs: number) {
+		if (breakThresholdMs === nextMs) return;
+		breakThresholdMs = nextMs;
+		resetState();
 	}
 
 	async function updateContext(isTrigger: boolean) {
@@ -85,7 +94,8 @@ export function createDelayManager(deps: DelayManagerDeps) {
 		if (state.phase === 'idle' && isTrigger) {
 			state.phase = 'running';
 			state.startAt = nowMs;
-			scheduleAlarm(nowMs + delayMs);
+			state.breakStartAt = null;
+			scheduleNextAlarm(nowMs);
 			persistState();
 			return;
 		}
@@ -95,28 +105,55 @@ export function createDelayManager(deps: DelayManagerDeps) {
 				state.startAt = nowMs;
 			}
 
-			if (nowMs - (state.startAt ?? nowMs) >= delayMs) {
-				firePopup();
-				persistState();
-				return;
+			if (!isTrigger) {
+				if (!state.breakStartAt) state.breakStartAt = nowMs;
+				if (nowMs - (state.breakStartAt ?? nowMs) >= breakThresholdMs) {
+					resetState();
+					return;
+				}
+			} else {
+				state.breakStartAt = null;
 			}
 
-			scheduleAlarm((state.startAt ?? nowMs) + delayMs);
+			if (nowMs - (state.startAt ?? nowMs) >= delayMs) {
+				if (isTrigger) {
+					firePopup();
+					persistState();
+					return;
+				}
+			}
+
+			scheduleNextAlarm(nowMs);
 		}
 
 		persistState();
 	}
 
-	function handleAlarm(name: string): boolean {
+	function handleAlarm(name: string, isTrigger: boolean): boolean {
 		if (name !== ALARM_NAME) return false;
 		if (!enabled || delayMs <= 0) return true;
 		if (state.phase !== 'running' || !state.startAt) return true;
 
 		const nowMs = now();
-		if (nowMs - state.startAt >= delayMs) {
-			firePopup();
-			persistState();
+		if (!isTrigger) {
+			if (!state.breakStartAt) state.breakStartAt = nowMs;
+			if (nowMs - (state.breakStartAt ?? nowMs) >= breakThresholdMs) {
+				resetState();
+				return true;
+			}
+		} else {
+			state.breakStartAt = null;
 		}
+
+		if (nowMs - state.startAt >= delayMs) {
+			if (isTrigger) {
+				firePopup();
+				persistState();
+				return true;
+			}
+		}
+		scheduleNextAlarm(nowMs);
+		persistState();
 		return true;
 	}
 
@@ -124,6 +161,7 @@ export function createDelayManager(deps: DelayManagerDeps) {
 		clearAlarm();
 		state.phase = 'cooldown';
 		state.startAt = null;
+		state.breakStartAt = null;
 		deps.openPopup();
 	}
 
@@ -132,6 +170,7 @@ export function createDelayManager(deps: DelayManagerDeps) {
 		state = {
 			phase: 'idle',
 			startAt: null,
+			breakStartAt: null,
 			lastIsTrigger: false,
 		};
 		persistState();
@@ -154,6 +193,7 @@ export function createDelayManager(deps: DelayManagerDeps) {
 			if (stored) {
 				state.phase = normalizePhase(stored.phase);
 				state.startAt = typeof stored.startAt === 'number' ? stored.startAt : null;
+				state.breakStartAt = typeof stored.breakStartAt === 'number' ? stored.breakStartAt : null;
 				state.lastIsTrigger = !!stored.lastIsTrigger;
 				if (state.phase === 'running' && !state.startAt) {
 					state.phase = 'idle';
@@ -173,6 +213,20 @@ export function createDelayManager(deps: DelayManagerDeps) {
 		deps.scheduleAlarm?.(ALARM_NAME, whenMs);
 	}
 
+	function scheduleNextAlarm(nowMs: number) {
+		const delayDue = state.startAt ? state.startAt + delayMs : null;
+		const breakDue = state.breakStartAt ? state.breakStartAt + breakThresholdMs : null;
+		let next: number | null = null;
+
+		if (delayDue && delayDue > nowMs) next = delayDue;
+		if (breakDue && breakDue > nowMs) next = next ? Math.min(next, breakDue) : breakDue;
+
+		if (!next && breakDue) next = breakDue;
+		if (!next && delayDue) next = delayDue;
+
+		if (next) scheduleAlarm(next);
+	}
+
 	function clearAlarm() {
 		deps.clearAlarm?.(ALARM_NAME);
 	}
@@ -182,17 +236,19 @@ export function createDelayManager(deps: DelayManagerDeps) {
 			const storage = deps.getStorage();
 			if (!storage) return;
 			storage.set({
-					delayState: {
-						phase: state.phase,
-						startAt: state.startAt,
-						lastIsTrigger: state.lastIsTrigger,
-					},
-				});
+				delayState: {
+					phase: state.phase,
+					startAt: state.startAt,
+					breakStartAt: state.breakStartAt,
+					lastIsTrigger: state.lastIsTrigger,
+				},
+			});
 		} catch (e) {}
 	}
 
 	return {
 		setDelayMs,
+		setBreakThresholdMs,
 		setEnabled,
 		updateContext,
 		handleAlarm,
