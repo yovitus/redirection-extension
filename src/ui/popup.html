@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zeeguu Learning</title>
+  <title>Focular</title>
   <style>
     * {
       margin: 0;
@@ -20,24 +20,34 @@
     .container {
       background: white;
       border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
       padding: 24px;
     }
     h1 {
-      font-size: 28px;
-      font-weight: bold;
-      text-align: center;
-      margin-bottom: 8px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      font-size: 20px;
+      font-weight: 600;
+      text-align: left;
+      margin-bottom: 6px;
     }
     .subtitle {
-      text-align: center;
       color: #666;
-      font-size: 14px;
-      margin-bottom: 20px;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .section {
+      margin-top: 16px;
+    }
+    .section-title {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #333;
+    }
+    .help-text {
+      color: #666;
+      font-size: 12px;
+      margin-bottom: 8px;
     }
     .form-group {
       margin-bottom: 16px;
@@ -58,17 +68,17 @@
     }
     .form-group input:focus {
       outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      border-color: #4f7cff;
+      box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.1);
     }
     .btn {
       width: 100%;
-      padding: 12px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 10px;
+      background: #4f7cff;
       color: white;
       border: none;
       border-radius: 4px;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -98,27 +108,176 @@
       border-color: #667eea;
       color: #667eea;
     }
+    .button-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .delay-btn {
+      padding: 10px 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #f7f7f7;
+      color: #333;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .delay-btn:hover {
+      border-color: #667eea;
+      color: #667eea;
+    }
+    .delay-btn.active {
+      background: #4f7cff;
+      border-color: #4f7cff;
+      color: #fff;
+      box-shadow: 0 6px 16px rgba(79, 124, 255, 0.3);
+    }
+    .delay-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .timer-card {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px dashed #d7d7d7;
+      border-radius: 8px;
+      background: #fafafa;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      color: #333;
+    }
+    .timer-card.hidden {
+      display: none;
+    }
+    .timer-label {
+      font-weight: 600;
+    }
+    .timer-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      letter-spacing: 0.3px;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border: 1px solid #eee;
+      border-radius: 8px;
+      background: #f7f7f7;
+    }
+    .toggle-label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .toggle-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+    }
+    .toggle-subtitle {
+      font-size: 12px;
+      color: #666;
+    }
+    .switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      display: inline-block;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      inset: 0;
+      background: #c9c9c9;
+      border-radius: 999px;
+      transition: background 0.2s ease;
+    }
+    .slider::before {
+      content: '';
+      position: absolute;
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      top: 3px;
+      background: #fff;
+      border-radius: 999px;
+      transition: transform 0.2s ease;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    }
+    .switch input:checked + .slider {
+      background: #4f7cff;
+    }
+    .switch input:checked + .slider::before {
+      transform: translateX(20px);
+    }
+    .settings-disabled {
+      opacity: 0.45;
+      filter: grayscale(0.3);
+    }
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🌍 Focular</h1>
-    <p class="subtitle">Why procrastinate when you can learn a language?</p>
-    <!-- Quick overlay launcher -->
-    <div id="overlay-section" style="margin-bottom:16px;">
-      <div class="form-group">
-        <input type="text" id="overlay-url" placeholder="https://youtube.com" autofocus>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-        <button class="btn-secondary" id="save-site-btn" title="Save site">Save</button>
-      </div>
+    <h1>Focular</h1>
+    <p class="subtitle">Choose where the popup appears. Game is fixed to Sudoku.</p>
 
-      <div style="margin-top:8px;">
-        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;color:#333;">Saved Sites</label>
-        <div id="saved-sites-list" style="display:flex;flex-direction:column;gap:8px;">
+    <div class="section">
+      <div class="toggle-row">
+        <div class="toggle-label">
+          <div class="toggle-title">Popup enabled</div>
+          <div class="toggle-subtitle">Turn all popup logic on or off.</div>
         </div>
+        <label class="switch" aria-label="Popup enabled">
+          <input type="checkbox" id="popup-enabled">
+          <span class="slider"></span>
+        </label>
       </div>
     </div>
+
+    <div id="popup-settings">
+      <div class="section">
+        <label class="section-title" for="trigger-url">Trigger websites</label>
+        <p class="help-text">Pages that should show the game overlay. Example: example.com</p>
+        <div class="form-group">
+          <input type="text" id="trigger-url" placeholder="example.com" autocomplete="off" autofocus>
+        </div>
+        <button class="btn" id="save-trigger-btn" title="Add trigger site">Add trigger site</button>
+        <div id="trigger-sites-list" class="list"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <label class="section-title">Popup delay</label>
+      <p class="help-text">How long to wait before the popup appears.</p>
+      <div class="button-row" role="group" aria-label="Popup delay options">
+        <button class="delay-btn" data-delay="0" type="button">Instant</button>
+        <button class="delay-btn" data-delay="300000" type="button">5 min</button>
+        <button class="delay-btn" data-delay="600000" type="button">10 min</button>
+      </div>
+      <div id="delay-timer" class="timer-card hidden">
+        <div class="timer-label" id="delay-timer-label">Timer</div>
+        <div class="timer-value" id="delay-timer-value">--:--</div>
+      </div>
+    </div>
+
   </div>
 
   <script src="popup.js"></script>

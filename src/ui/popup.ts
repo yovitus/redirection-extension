@@ -1,79 +1,90 @@
 /**
- * popup.ts - Overlay launcher only
+ * popup.ts
  *
- * Minimal controller that focuses the URL input and sends an `openOverlay` message
- * to the background service worker. The popup itself then closes.
+ * Popup controller for managing trigger sites.
  */
+
+import { normalizeStoredList } from './utils/list-utils';
 
 // Use chrome from window to avoid duplicate ambient declarations
 const chromeApi: any = (window as any).chrome;
 
 window.addEventListener('DOMContentLoaded', () => {
-	setupOverlayUI();
-	focusOverlayInput();
-	renderSavedSites();
+	setupLists();
+	setupDelayButtons();
+	setupPopupToggle();
+	setupStorageListener();
+	focusInput('trigger-url');
+	renderAllLists();
+	renderDelayButtons();
+	renderPopupToggle();
+	renderDelayTimer();
 });
 
-function setupOverlayUI() {
-	try {
-		const urlInput = document.getElementById('overlay-url') as HTMLInputElement | null;
-		const openBtn = document.getElementById('overlay-open-btn') as HTMLButtonElement | null;
-		const saveBtn = document.getElementById('save-site-btn') as HTMLButtonElement | null;
+type ListKey = 'triggerSites';
 
-		if (openBtn && urlInput) {
-			openBtn.addEventListener('click', () => {
-				let url = (urlInput.value || '').trim();
-				if (!url) return;
-				if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+type ListConfig = {
+	key: ListKey;
+	inputId: string;
+	buttonId: string;
+	listId: string;
+	emptyText: string;
+	normalize?: (value: string) => string;
+	display?: (value: string) => string;
+};
 
-				try {
-					if (chromeApi && chromeApi.runtime && chromeApi.runtime.sendMessage) {
-						chromeApi.runtime.sendMessage({ action: 'openOverlay', url, width: 900, height: 700 }, (resp: any) => {
-							try { window.close(); } catch {}
-						});
-					} else {
-						try { window.close(); } catch {}
-					}
-				} catch (e) {
-					try { window.close(); } catch {}
+// Configuration for popup lists.
+const LISTS: ListConfig[] = [
+	{
+		key: 'triggerSites',
+		inputId: 'trigger-url',
+		buttonId: 'save-trigger-btn',
+		listId: 'trigger-sites-list',
+		emptyText: 'No trigger sites yet - add one above.',
+		normalize: normalizeTriggerSite,
+		display: (value) => value.replace(/^https?:\/\//i, ''),
+	},
+];
+
+// Bind UI events for adding items to each list.
+function setupLists() {
+	LISTS.forEach((config) => {
+		const input = document.getElementById(config.inputId) as HTMLInputElement | null;
+		const button = document.getElementById(config.buttonId) as HTMLButtonElement | null;
+		if (!input || !button) return;
+
+		const addCurrentValue = async () => {
+			const raw = (input.value || '').trim();
+			if (!raw) return;
+			const normalized = config.normalize ? config.normalize(raw) : raw;
+			if (!normalized) return;
+			try {
+				const list = await getList(config.key);
+				if (!list.includes(normalized)) {
+					list.push(normalized);
+					await setList(config.key, list);
 				}
-			});
+				input.value = '';
+				renderList(config);
+			} catch (e) {
+				console.warn('Failed to save entry', e);
+			}
+		};
 
-			urlInput.addEventListener('keydown', (ev) => {
-				if ((ev as KeyboardEvent).key === 'Enter') {
-					openBtn.click();
-				}
-			});
-		}
-
-		if (saveBtn && urlInput) {
-			saveBtn.addEventListener('click', async () => {
-				const raw = (urlInput.value || '').trim();
-				if (!raw) return;
-				let match = raw;
-				if (!/^https?:\/\//i.test(match)) match = match; // keep as user entered for matching
-				try {
-					const stored = await getSavedSites();
-					// normalize to objects { match }
-					const normalized = (stored || []).map((s: any) => typeof s === 'string' ? { match: s } : s);
-					if (!normalized.find((e: any) => String(e.match) === String(match))) {
-						normalized.push({ match });
-						await setSavedSites(normalized);
-					}
-					renderSavedSites();
-				} catch (e) {
-					console.warn('Failed to save site', e);
-				}
-			});
-		}
-	} catch (e) {
-		console.warn('Overlay UI setup failed', e);
-	}
+		button.addEventListener('click', addCurrentValue);
+		input.addEventListener('keydown', (event) => {
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				addCurrentValue();
+			}
+		});
+	});
 }
 
-function focusOverlayInput() {
+// Focus and select the primary input on load.
+function focusInput(id: string) {
 	try {
-		const el = document.getElementById('overlay-url') as HTMLInputElement | null;
+		const el = document.getElementById(id) as HTMLInputElement | null;
 		if (el) {
 			el.focus();
 			el.select && el.select();
@@ -81,12 +92,155 @@ function focusOverlayInput() {
 	} catch (e) {}
 }
 
-function getSavedSites(): Promise<any[]> {
+// Render all configured lists in the popup.
+async function renderAllLists() {
+	for (const config of LISTS) {
+		await renderList(config);
+	}
+}
+
+// Bind UI events for the delay option buttons.
+function setupDelayButtons() {
+	const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.delay-btn'));
+	buttons.forEach((button) => {
+		button.addEventListener('click', async () => {
+			const raw = button.dataset.delay;
+			const delayMs = raw ? Number(raw) : 0;
+			if (!Number.isFinite(delayMs)) return;
+			try {
+				const current = await getPopupDelayMs();
+				const nextDelay = current === delayMs ? null : delayMs;
+				await setPopupDelayMs(nextDelay);
+				renderDelayButtons();
+				renderPopupToggle();
+			} catch (e) {
+				console.warn('Failed to save delay', e);
+			}
+		});
+	});
+}
+
+// Bind UI events for enabling/disabling popup logic.
+function setupPopupToggle() {
+	const input = document.getElementById('popup-enabled') as HTMLInputElement | null;
+	if (!input) return;
+	input.addEventListener('change', async () => {
+		try {
+			await setPopupEnabled(input.checked);
+			renderPopupToggle();
+			renderDelayButtons();
+		} catch (e) {
+			console.warn('Failed to toggle popup', e);
+		}
+	});
+}
+
+// Render the selected delay button state.
+async function renderDelayButtons() {
+	const [currentDelay, enabled] = await Promise.all([getPopupDelayMs(), getPopupEnabled()]);
+	const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.delay-btn'));
+	buttons.forEach((button) => {
+		const raw = button.dataset.delay;
+		const delayMs = raw ? Number(raw) : 0;
+		const isActive = Number.isFinite(delayMs) && currentDelay !== null && delayMs === currentDelay;
+		button.classList.toggle('active', isActive);
+		button.disabled = enabled;
+	});
+}
+
+// Render the popup enabled toggle and disabled state styling.
+async function renderPopupToggle() {
+	const [enabled, currentDelay] = await Promise.all([getPopupEnabled(), getPopupDelayMs()]);
+	const delayChosen = currentDelay !== null && Number.isFinite(currentDelay);
+	const input = document.getElementById('popup-enabled') as HTMLInputElement | null;
+	if (input) {
+		input.checked = enabled;
+		input.disabled = !delayChosen;
+	}
+
+	const settings = document.getElementById('popup-settings');
+	if (settings) {
+		settings.classList.toggle('settings-disabled', !enabled);
+	}
+}
+
+// Render countdown/status for the delay timer.
+async function renderDelayTimer() {
+	const [delayMs, enabled, delayState] = await Promise.all([
+		getPopupDelayMs(),
+		getPopupEnabled(),
+		getDelayState(),
+	]);
+
+	const timerEl = document.getElementById('delay-timer');
+	const labelEl = document.getElementById('delay-timer-label');
+	const valueEl = document.getElementById('delay-timer-value');
+	if (!timerEl || !labelEl || !valueEl) return;
+
+	if (!delayMs || delayMs <= 0) {
+		timerEl.classList.add('hidden');
+		stopTimerInterval();
+		return;
+	}
+
+	timerEl.classList.remove('hidden');
+
+	if (!enabled) {
+		labelEl.textContent = 'Timer disabled';
+		valueEl.textContent = '--:--';
+		stopTimerInterval();
+		return;
+	}
+
+	const phase = delayState?.phase || 'idle';
+	const startAt = typeof delayState?.startAt === 'number' ? delayState.startAt : null;
+	const elapsed = startAt ? Date.now() - startAt : 0;
+	const remaining = Math.max(0, delayMs - elapsed);
+
+	if (phase === 'running') {
+		labelEl.textContent = 'Time remaining';
+		valueEl.textContent = formatMs(remaining);
+		startTimerInterval();
+		return;
+	}
+
+	if (phase === 'cooldown') {
+		labelEl.textContent = 'Timer complete';
+		valueEl.textContent = 'Waiting for next trigger';
+	} else {
+		labelEl.textContent = 'Starts on trigger';
+		valueEl.textContent = formatMs(delayMs);
+	}
+	stopTimerInterval();
+}
+
+// Normalize trigger site input for consistent matching.
+function normalizeTriggerSite(value: string): string {
+	return value.trim().replace(/\/+$/, '');
+}
+
+// Remove duplicates while preserving order.
+function dedupe(values: string[]): string[] {
+	const seen = new Set<string>();
+	const output: string[] = [];
+	for (const value of values) {
+		if (seen.has(value)) continue;
+		seen.add(value);
+		output.push(value);
+	}
+	return output;
+}
+
+// Load a list from chrome storage (with legacy fallback).
+function getList(key: ListKey): Promise<string[]> {
 	return new Promise((resolve) => {
 		try {
-			chromeApi.storage.local.get(['savedSites'], (res: any) => {
-				const arr = (res && Array.isArray(res.savedSites)) ? res.savedSites : [];
-				resolve(arr);
+			chromeApi.storage.local.get([key, 'savedSites'], (res: any) => {
+				let raw = res ? res[key] : [];
+				if ((!raw || !Array.isArray(raw)) && key === 'triggerSites') {
+					raw = res ? res.savedSites : [];
+				}
+				resolve(dedupe(normalizeStoredList(raw)));
 			});
 		} catch (e) {
 			resolve([]);
@@ -94,35 +248,152 @@ function getSavedSites(): Promise<any[]> {
 	});
 }
 
-function setSavedSites(sites: any[]): Promise<void> {
+// Persist a list to chrome storage.
+function setList(key: ListKey, list: string[]): Promise<void> {
 	return new Promise((resolve, reject) => {
 		try {
-			chromeApi.storage.local.set({ savedSites: sites }, () => {
+			chromeApi.storage.local.set({ [key]: list }, () => {
 				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
 				resolve();
 			});
-		} catch (e) { reject(e); }
+		} catch (e) {
+			reject(e);
+		}
 	});
 }
 
-async function renderSavedSites() {
+// Load the currently selected popup delay.
+function getPopupDelayMs(): Promise<number | null> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.get(['popupDelayMs'], (res: any) => {
+				const value = res?.popupDelayMs;
+				resolve(typeof value === 'number' ? value : null);
+			});
+		} catch (e) {
+			resolve(null);
+		}
+	});
+}
+
+// Load whether the popup logic is enabled.
+function getPopupEnabled(): Promise<boolean> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.get(['popupEnabled'], (res: any) => {
+				resolve(res?.popupEnabled === true);
+			});
+		} catch (e) {
+			resolve(false);
+		}
+	});
+}
+
+// Persist the popup enabled toggle.
+function setPopupEnabled(enabled: boolean): Promise<void> {
+	return new Promise((resolve, reject) => {
+		try {
+			chromeApi.storage.local.set({ popupEnabled: enabled }, () => {
+				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
+				resolve();
+			});
+		} catch (e) {
+			reject(e);
+		}
+	});
+}
+
+// Read delay state from session/local storage.
+function getDelayState(): Promise<{ phase?: string; startAt?: number } | null> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.get(['delayState'], (res: any) => {
+				if (res?.delayState) return resolve(res.delayState);
+				const session = chromeApi.storage?.session;
+				if (session?.get) {
+					session.get(['delayState'], (fallback: any) => {
+						resolve(fallback?.delayState ?? null);
+					});
+					return;
+				}
+				resolve(null);
+			});
+		} catch (e) {
+			resolve(null);
+		}
+	});
+}
+
+// Listen to storage changes to keep UI in sync.
+function setupStorageListener() {
 	try {
-		const listEl = document.getElementById('saved-sites-list');
+		chromeApi.storage.onChanged.addListener((changes: any, area: string) => {
+			if (area !== 'local' && area !== 'session') return;
+			if (changes.popupDelayMs || changes.popupEnabled || changes.delayState) {
+				renderDelayButtons();
+				renderPopupToggle();
+				renderDelayTimer();
+			}
+		});
+	} catch (e) {}
+}
+
+let timerIntervalId: number | null = null;
+
+function startTimerInterval() {
+	if (timerIntervalId !== null) return;
+	timerIntervalId = window.setInterval(() => {
+		renderDelayTimer();
+	}, 1000);
+}
+
+function stopTimerInterval() {
+	if (timerIntervalId === null) return;
+	window.clearInterval(timerIntervalId);
+	timerIntervalId = null;
+}
+
+function formatMs(ms: number): string {
+	const totalSeconds = Math.ceil(ms / 1000);
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	const mm = String(minutes).padStart(2, '0');
+	const ss = String(seconds).padStart(2, '0');
+	return `${mm}:${ss}`;
+}
+
+// Persist the popup delay selection.
+function setPopupDelayMs(delayMs: number | null): Promise<void> {
+	return new Promise((resolve, reject) => {
+		try {
+			chromeApi.storage.local.set({ popupDelayMs: delayMs }, () => {
+				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
+				resolve();
+			});
+		} catch (e) {
+			reject(e);
+		}
+	});
+}
+
+// Render a single list section in the UI.
+async function renderList(config: ListConfig) {
+	try {
+		const listEl = document.getElementById(config.listId);
 		if (!listEl) return;
 		listEl.innerHTML = '';
-		const sites = await getSavedSites();
-		if (!sites || sites.length === 0) {
-			const p = document.createElement('div');
-			p.style.color = '#666';
-			p.style.fontSize = '13px';
-			p.textContent = 'No saved sites yet — add one and press Save.';
-			listEl.appendChild(p);
+
+		const items = await getList(config.key);
+		if (!items || items.length === 0) {
+			const empty = document.createElement('div');
+			empty.style.color = '#666';
+			empty.style.fontSize = '13px';
+			empty.textContent = config.emptyText;
+			listEl.appendChild(empty);
 			return;
 		}
 
-		// normalize to objects { match, open? }
-		const normalized = sites.map((s: any) => typeof s === 'string' ? { match: s } : s);
-		normalized.forEach((s: any) => {
+		items.forEach((value) => {
 			const row = document.createElement('div');
 			row.style.display = 'flex';
 			row.style.justifyContent = 'space-between';
@@ -131,22 +402,11 @@ async function renderSavedSites() {
 			row.style.border = '1px solid #eee';
 			row.style.borderRadius = '6px';
 
-			const a = document.createElement('a');
-			a.href = '#';
-			const display = (s.open ? s.open : s.match) || '';
-			a.textContent = String(display).replace(/^https?:\/\//i, '');
-			a.style.color = '#333';
-			a.style.textDecoration = 'none';
-			a.style.flex = '1';
-			a.addEventListener('click', (ev) => {
-				ev.preventDefault();
-				try {
-					const toOpen = s.open ? s.open : (/^https?:\/\//i.test(s.match) ? s.match : 'https://' + s.match);
-					chromeApi.runtime.sendMessage({ action: 'openOverlay', url: toOpen, width: 900, height: 700 }, (resp: any) => {
-						try { window.close(); } catch {}
-					});
-				} catch (e) { }
-			});
+			const label = document.createElement('div');
+			label.textContent = config.display ? config.display(value) : value;
+			label.style.color = '#333';
+			label.style.flex = '1';
+			label.style.wordBreak = 'break-word';
 
 			const del = document.createElement('button');
 			del.textContent = 'Remove';
@@ -158,22 +418,20 @@ async function renderSavedSites() {
 			del.style.cursor = 'pointer';
 			del.addEventListener('click', async () => {
 				try {
-					const existing = await getSavedSites();
-					const normalizedStores = existing.map((x: any) => typeof x === 'string' ? { match: x } : x);
-					const filtered = normalizedStores.filter((x: any) => x.match !== s.match);
-					await setSavedSites(filtered);
-					renderSavedSites();
+					const existing = await getList(config.key);
+					const filtered = existing.filter((item) => item !== value);
+					await setList(config.key, filtered);
+					renderList(config);
 				} catch (e) {
-					console.warn('Failed to remove', e);
+					console.warn('Failed to remove entry', e);
 				}
 			});
 
-			row.appendChild(a);
+			row.appendChild(label);
 			row.appendChild(del);
 			listEl.appendChild(row);
 		});
 	} catch (e) {
-		console.warn('renderSavedSites failed', e);
+		console.warn('renderList failed', e);
 	}
 }
-

@@ -1,82 +1,102 @@
 /**
  * overlay-inject.ts
  *
- * Injected into the active tab to draw a semi-transparent overlay that can be
- * clicked to close the popup window. Also cleans itself up when the background
- * script sends a `removeOverlay` message.
+ * Content script that shows a dimmed overlay while the popup window is open.
  */
 
-(() => {
-  try {
-    const chromeApi = (globalThis as any).chrome as typeof chrome | undefined;
-    if (!chromeApi) {
-      return;
-    }
+const chromeApi: any = (window as any).chrome;
 
-    if (document.getElementById('__ext_overlay_div')) {
-      return;
-    }
+const OVERLAY_ID = 'focular-dim-overlay';
+const GAME_URL = 'https://minigamegpt.com/en/games/sudoku/';
 
-    const overlay = document.createElement('div');
-    overlay.id = '__ext_overlay_div';
-    Object.assign(overlay.style, {
-      position: 'fixed',
-      left: '0',
-      top: '0',
-      width: '100%',
-      height: '100%',
-      background: 'rgba(0, 0, 0, 0.65)',
-      zIndex: '2147483647',
-      pointerEvents: 'auto',
-      backdropFilter: 'blur(2px)'
-    });
+init();
 
-    overlay.addEventListener('click', () => {
-      try {
-        chromeApi.runtime.sendMessage({ action: 'closeOverlayFromTab' });
-      } catch {
-        /* ignore */
-      }
-    }, { once: true });
+// Start content script behavior on page load.
+function init() {
+	if (!chromeApi?.runtime) return;
+	if (window.top !== window) return;
+	if (isGameWindow()) return;
 
-    const hint = document.createElement('div');
-    Object.assign(hint.style, {
-      position: 'fixed',
-      right: '12px',
-      top: '12px',
-      color: '#fff',
-      background: 'rgba(0, 0, 0, 0.3)',
-      padding: '6px 8px',
-      borderRadius: '6px',
-      fontFamily: 'sans-serif',
-      fontSize: '12px',
-      zIndex: '2147483647'
-    });
-    hint.textContent = 'Click anywhere to close';
+	listenForMessages();
+}
 
-    overlay.appendChild(hint);
-    document.documentElement.appendChild(overlay);
+// Listen for background commands to show/hide the dim overlay.
+function listenForMessages() {
+	try {
+		chromeApi.runtime.onMessage.addListener((message: any) => {
+			if (!message || typeof message.type !== 'string') return;
+			if (message.type === 'show-dim') {
+				showDimOverlay();
+			}
+			if (message.type === 'hide-dim') {
+				hideDimOverlay();
+			}
+		});
+	} catch (e) {}
+}
 
-    const messageListener = (
-      msg: { action?: string } | undefined,
-      _sender: chrome.runtime.MessageSender,
-      sendResponse: (response?: unknown) => void
-    ) => {
-      if (msg?.action !== 'removeOverlay') {
-        return;
-      }
+// Detect the game window URL to avoid dimming inside the popup.
+function isGameWindow(): boolean {
+	const href = window.location.href;
+	if (href.startsWith(GAME_URL)) return true;
+	return (
+		window.location.hostname === 'minigamegpt.com' &&
+		window.location.pathname.startsWith('/en/games/sudoku')
+	);
+}
 
-      const element = document.getElementById('__ext_overlay_div');
-      if (element && element.parentNode) {
-        element.parentNode.removeChild(element);
-      }
+// Render the dimmed overlay and click-to-close message.
+function showDimOverlay() {
+	if (document.getElementById(OVERLAY_ID)) return;
 
-      chromeApi.runtime.onMessage.removeListener(messageListener);
-      sendResponse({ success: true });
-    };
+	const overlay = document.createElement('div');
+	overlay.id = OVERLAY_ID;
+	overlay.style.position = 'fixed';
+	overlay.style.inset = '0';
+	overlay.style.width = '100vw';
+	overlay.style.height = '100vh';
+	overlay.style.background = 'rgba(0, 0, 0, 0.55)';
+	overlay.style.zIndex = '2147483647';
+	overlay.style.display = 'flex';
+	overlay.style.alignItems = 'center';
+	overlay.style.justifyContent = 'center';
+	overlay.style.padding = '32px';
+	overlay.style.boxSizing = 'border-box';
+	overlay.style.backdropFilter = 'blur(1.5px)';
+	overlay.style.cursor = 'pointer';
 
-    chromeApi.runtime.onMessage.addListener(messageListener);
-  } catch (error) {
-    console.warn('overlay-inject error', error);
-  }
-})();
+	const message = document.createElement('div');
+	message.textContent = 'Click anywhere outside the popup, to close it';
+	message.style.position = 'absolute';
+	message.style.top = '20px';
+	message.style.left = '50%';
+	message.style.transform = 'translateX(-50%)';
+	message.style.color = '#f5f5f5';
+	message.style.fontSize = '15px';
+	message.style.letterSpacing = '0.2px';
+	message.style.textAlign = 'center';
+	message.style.maxWidth = '520px';
+	message.style.padding = '10px 16px';
+	message.style.borderRadius = '999px';
+	message.style.background = 'rgba(0, 0, 0, 0.6)';
+	message.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.35)';
+
+	overlay.appendChild(message);
+	overlay.addEventListener('click', () => {
+		try {
+			chromeApi.runtime.sendMessage({ type: 'dismiss-popup' });
+		} catch (e) {}
+		hideDimOverlay();
+	});
+
+	const mount = document.body || document.documentElement;
+	mount.appendChild(overlay);
+}
+
+// Remove the dimmed overlay if present.
+function hideDimOverlay() {
+	const existing = document.getElementById(OVERLAY_ID);
+	if (existing && existing.parentNode) {
+		existing.parentNode.removeChild(existing);
+	}
+}

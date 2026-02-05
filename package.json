@@ -1,7 +1,7 @@
 {
-  "name": "zeeguu-extension",
+  "name": "website-list-extension",
   "version": "0.1.0",
-  "description": "Browser extension for learning languages with Zeeguu",
+  "description": "Browser extension for managing a simple website list",
   "private": true,
   "type": "module",
   "scripts": {
