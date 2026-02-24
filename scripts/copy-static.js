@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execFileSync } from "child_process";
+import { build } from "esbuild";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,25 +19,39 @@ fs.cpSync(path.join(ROOT, "src/ui/icons"), path.join(dist, "icons"), {
   recursive: true,
 });
 
-// Run esbuild commands (use local binary to avoid network hangs)
-const esbuildBin = path.join(
-  ROOT,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "esbuild.cmd" : "esbuild"
-);
+// Build with esbuild API (cross-platform)
+const buildTargets = [
+  { entry: "src/ui/popup.ts", outfile: "dist/popup.js", platform: "browser" },
+  { entry: "src/ui/experiment.ts", outfile: "dist/experiment.js", platform: "browser" },
+  { entry: "src/ui/overlay-inject.ts", outfile: "dist/overlay-inject.js", platform: "browser" },
+  { entry: "src/extension/background.ts", outfile: "dist/background.js", platform: "browser" },
+  { entry: "src/extension/dblogger.ts", outfile: "dist/dblogger.js", platform: "browser" },
+  { entry: "src/extension/experiment-manager.ts", outfile: "dist/experiment-manager.js", platform: "browser" },
 
-const esbuildCmds = [
-  ["src/ui/popup.ts", "--bundle", "--platform=browser", "--outfile=dist/popup.js"],
-  ["src/ui/overlay-inject.ts", "--bundle", "--platform=browser", "--outfile=dist/overlay-inject.js"],
-  ["src/extension/background.ts", "--bundle", "--platform=browser", "--outfile=dist/background.js"]
 ];
 
-for (const cmd of esbuildCmds) {
-  execFileSync(esbuildBin, cmd, { stdio: "inherit", cwd: ROOT });
+async function runBuilds() {
+  for (const t of buildTargets) {
+    await build({
+      entryPoints: [path.join(ROOT, t.entry)],
+      bundle: true,
+      platform: t.platform,
+      outfile: path.join(ROOT, t.outfile),
+    });
+  }
 }
 
-// Copy popup.html
-fs.copyFileSync(path.join(ROOT, "src/ui/popup.html"), path.join(dist, "popup.html"));
+(async function main() {
+  try {
+    await runBuilds();
 
-console.log("✓ Built to dist/");
+    // Copy popup.html
+    fs.copyFileSync(path.join(ROOT, "src/ui/popup.html"), path.join(dist, "popup.html"));
+    fs.copyFileSync(path.join(ROOT, "src/ui/experiment.html"), path.join(dist, "experiment.html"));
+
+    console.log("✓ Built to dist/");
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+})();

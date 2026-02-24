@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Focular</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      min-height: 100vh;
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #333;
+    }
+    .container {
+      width: 100%;
+      max-width: 420px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #3d4ed7;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      width: fit-content;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #555;
+      line-height: 1.5;
+    }
+    .timeline {
+      border: 1px solid #eee;
+      border-radius: 10px;
+      background: #fafafa;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .label {
+      font-weight: 700;
+      color: #333;
+    }
+    .value {
+      color: #444;
+      font-size: 12px;
+      text-align: right;
+    }
+    .note {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.4;
+    }
+    .btn {
+      margin-top: 6px;
+      padding: 10px;
+      background: #4f7cff;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .consent-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .consent-row .btn {
+      margin-top: 0;
+      flex: 1;
+    }
+    .btn.consent-yes {
+      background: #1f9d45;
+    }
+    .btn.consent-no {
+      background: #d93a3a;
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 14px rgba(79, 124, 255, 0.35);
+    }
+    .btn.consent-yes:hover {
+      box-shadow: 0 6px 14px rgba(31, 157, 69, 0.35);
+    }
+    .btn.consent-no:hover {
+      box-shadow: 0 6px 14px rgba(217, 58, 58, 0.35);
+    }
+    .btn.secondary {
+      background: #e7eaf4;
+      color: #29324a;
+    }
+    .btn.secondary:hover {
+      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.16);
+    }
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="badge" id="experiment-badge">Welcome</div>
+    <h1 id="experiment-title">Welcome to Focular</h1>
+    <p class="subtitle" id="experiment-subtitle">
+      This experiment lasts 14 days. Week 1 logs visits only. Week 2 enables the procrastination overlay.
+    </p>
+
+    <div class="timeline">
+      <div class="row">
+        <div class="label">Week 1</div>
+        <div class="value" id="week1-range">Logging only</div>
+      </div>
+      <div class="row">
+        <div class="label">Week 2</div>
+        <div class="value" id="week2-range">Overlay enabled</div>
+      </div>
+    </div>
+
+    <div class="note" id="experiment-note">
+      You can close this window and continue using your browser.
+    </div>
+
+    <div class="consent-row" id="consent-row">
+      <button class="btn consent-yes" id="consent-yes-btn" type="button">I Consent</button>
+      <button class="btn consent-no" id="consent-no-btn" type="button">I do not consent</button>
+    </div>
+    <button class="btn" id="primary-btn" type="button">Got it</button>
+  </div>
+
+  <script src="experiment.js"></script>
+</body>
+</html>
