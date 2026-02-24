@@ -6,10 +6,25 @@
 
 import { normalizeStoredList } from '../ui/utils/list-utils';
 import { createDelayManager } from './delay-manager';
+import { createExperimentManager, EXPERIMENT_ALARM_NAME } from './experiment-manager';
+import { DbLogger } from './dblogger';
 
 const chromeApi: any = (globalThis as any).chrome;
 
-const GAME_URL = 'https://minigamegpt.com/en/games/sudoku/';
+// Configuration for active time logging to the database.
+const LOG_FUNCTION_URL = 'https://khnycvxxfdixvtofxfqm.supabase.co/rest/v1/logs';
+const LOG_ANON_KEY = 'sb_publishable_MlbW7wbBg8vh663gUXFP_w_grOoa-DD';
+const LOG_USER_ID_KEY = 'focularUserId';
+const USER_LOG_URL = 'https://khnycvxxfdixvtofxfqm.supabase.co/rest/v1/users';
+const dbLogger = new DbLogger({
+  logUrl: LOG_FUNCTION_URL,
+  anonKey: LOG_ANON_KEY,
+  userUrl: USER_LOG_URL,
+  storage: chromeApi?.storage?.local ?? null,
+  userIdKey: LOG_USER_ID_KEY,
+});
+
+const GAME_URL = 'https://www.minisudoku.games/'//'https://minigamegpt.com/en/games/sudoku/';
 const POPUP_BASE_WIDTH = 960;
 const POPUP_BASE_HEIGHT = 640;
 const POPUP_WIDTH_RATIO = 0.7;
@@ -21,8 +36,12 @@ const POPUP_MAX_HEIGHT = 820;
 const POPUP_ZOOM = 0.9;
 const BREAK_THRESHOLD_MS = 2 * 60 * 1000;
 
+let activeVisitStartTs: number | null = null;
+let activeVisitDomain: string | null = null;
+
 let cachedTriggerSites: string[] = [];
 let popupWindowId: number | null = null;
+let experimentPopupWindowId: number | null = null;
 let openingPopup = false;
 let currentVisitedUrl: string | null = null;
 let currentVisitedIsTrigger = false;
@@ -54,6 +73,14 @@ const delayManager = createDelayManager({
 		} catch (e) {}
 	},
 });
+const experimentManager = createExperimentManager({
+	dbLogger,
+	chromeApi,
+	setPopupEnabled: setPopupEnabledManaged,
+	openExperimentPopup,
+	getFromStorage,
+	setToStorage,
+});
 
 init();
 
@@ -67,8 +94,11 @@ function init() {
 	watchTabs();
 	watchWindows();
 	watchAlarms();
+	watchInstall();
 	refreshActiveTab();
 	syncExistingPopupWindow();
+	syncExistingExperimentPopupWindow();
+	void experimentManager.initExperiment();
 }
 
 // Refresh cached trigger sites when storage changes.
@@ -89,9 +119,16 @@ function watchMessages() {
 			if (!message || typeof message.type !== 'string') return;
 			if (message.type === 'dismiss-popup') {
 				closePopup();
+				closeExperimentPopup();
 			}
 			if (message.type === 'overlay-ready') {
 				handleOverlayReady(sender);
+			}
+			if (message.type === 'experiment-popup-ready') {
+				handleExperimentPopupReady();
+			}
+			if (message.type === 'experiment-consent') {
+				handleExperimentConsent(message);
 			}
 		});
 	} catch (e) {}
@@ -99,24 +136,50 @@ function watchMessages() {
 
 // Ensure the dim overlay is shown when a content script becomes ready.
 function handleOverlayReady(sender: any) {
-	if (popupWindowId) {
+	if (hasModalOpen()) {
 		const tabId = sender?.tab?.id;
 		if (tabId) {
 			try {
-				chromeApi.tabs.sendMessage(tabId, { type: 'show-dim' }, () => {});
+				chromeApi.tabs.sendMessage(tabId, { type: 'show-dim' }, () => {
+					const err = chromeApi.runtime.lastError;
+					if (err) return;
+				});
 			} catch (e) {}
 		}
 		return;
 	}
 
-	findExistingPopupWindow()
-		.then((existingId) => {
-			if (!existingId) return;
-			popupWindowId = existingId;
-			applyPopupZoom(popupWindowId);
+	Promise.all([findExistingPopupWindow(), findExistingExperimentPopupWindow()])
+		.then(([existingGameId, existingExperimentId]) => {
+			if (!existingGameId && !existingExperimentId) return;
+			if (existingGameId) {
+				popupWindowId = existingGameId;
+				applyPopupZoom(popupWindowId);
+			}
+			if (existingExperimentId) {
+				experimentPopupWindowId = existingExperimentId;
+			}
 			showDimAllTabs();
 		})
 		.catch(() => {});
+}
+async function handleExperimentPopupReady() {
+	if (!experimentPopupWindowId) {
+		try {
+			const existingId = await findExistingExperimentPopupWindow();
+			if (existingId) {
+				experimentPopupWindowId = existingId;
+			}
+		} catch (e) {}
+	}
+	updateDimState();
+}
+
+async function handleExperimentConsent(message:any) {
+	try {
+		if (typeof message?.consent !== 'boolean') return;
+		await dbLogger.logUserConsent(message.consent);
+	} catch (e) {}
 }
 
 // Watch tab navigation to open popups and dim new tabs.
@@ -124,8 +187,11 @@ function watchTabs() {
 	try {
 		chromeApi.tabs.onUpdated.addListener((tabId: number, changeInfo: any, tab: any) => {
 			if (changeInfo.status === 'complete' && tab?.url) {
-				if (popupWindowId && tab.windowId === popupWindowId) return;
-				if (popupWindowId) {
+				const isModalTab =
+					(popupWindowId && tab.windowId === popupWindowId) ||
+					(experimentPopupWindowId && tab.windowId === experimentPopupWindowId);
+				if (isModalTab) return;
+				if (hasModalOpen()) {
 					chromeApi.tabs.sendMessage(tabId, { type: 'show-dim' }, () => {
 						const err = chromeApi.runtime.lastError;
 						if (err) return;
@@ -134,7 +200,7 @@ function watchTabs() {
 				if (tabId === currentActiveTabId) {
 					currentActiveTabUrl = tab.url;
 					currentActiveTabWindowId = tab.windowId ?? null;
-					if (!popupWindowId || tab.windowId !== popupWindowId) {
+					if (!isModalWindow(tab.windowId)) {
 						lastNonPopupUrl = tab.url ?? null;
 					}
 					updateActiveContext();
@@ -146,14 +212,20 @@ function watchTabs() {
 			try {
 				chromeApi.tabs.get(activeInfo.tabId, (tab: any) => {
 					if (chromeApi.runtime.lastError) return;
+					let closed = false;
 					if (popupWindowId && tab?.windowId && tab.windowId !== popupWindowId) {
 						closePopup();
-						return;
+						closed = true;
 					}
+					if (experimentPopupWindowId && tab?.windowId && tab.windowId !== experimentPopupWindowId) {
+						closeExperimentPopup();
+						closed = true;
+					}
+					if (closed) return;
 					currentActiveTabId = activeInfo.tabId;
 					currentActiveTabUrl = tab?.url ?? null;
 					currentActiveTabWindowId = tab?.windowId ?? null;
-					if (!popupWindowId || tab?.windowId !== popupWindowId) {
+					if (!isModalWindow(tab?.windowId ?? null)) {
 						lastNonPopupUrl = tab?.url ?? null;
 					}
 					updateActiveContext();
@@ -163,6 +235,7 @@ function watchTabs() {
 
 		chromeApi.tabs.onRemoved.addListener((tabId: number) => {
 			if (tabId === currentActiveTabId) {
+				endActiveVisit('tab-closed');
 				currentActiveTabId = null;
 				currentActiveTabUrl = null;
 				currentActiveTabWindowId = null;
@@ -184,6 +257,9 @@ function watchWindows() {
 			if (popupWindowId && windowId !== popupWindowId) {
 				closePopup();
 			}
+			if (experimentPopupWindowId && windowId !== experimentPopupWindowId) {
+				closeExperimentPopup();
+			}
 			if (windowFocused) {
 				refreshActiveTab();
 			} else {
@@ -195,7 +271,13 @@ function watchWindows() {
 			if (popupWindowId === windowId) {
 				popupWindowId = null;
 				suppressNullActiveUpdate = true;
-				hideDimAllTabs();
+				updateDimState();
+				refreshActiveTab();
+			}
+			if (experimentPopupWindowId === windowId) {
+				experimentPopupWindowId = null;
+				suppressNullActiveUpdate = true;
+				updateDimState();
 				refreshActiveTab();
 			}
 		});
@@ -210,7 +292,7 @@ function refreshActiveTab() {
 			currentActiveTabId = tab?.id ?? null;
 			currentActiveTabUrl = tab?.url ?? null;
 			currentActiveTabWindowId = tab?.windowId ?? null;
-			if (!popupWindowId || tab?.windowId !== popupWindowId) {
+			if (!isModalWindow(tab?.windowId ?? null)) {
 				lastNonPopupUrl = tab?.url ?? null;
 			}
 			updateActiveContext();
@@ -228,12 +310,12 @@ function getActiveTriggerState(): Promise<boolean> {
 					currentActiveTabId = tab.id ?? currentActiveTabId;
 					currentActiveTabUrl = tab.url ?? currentActiveTabUrl;
 					currentActiveTabWindowId = tab.windowId ?? currentActiveTabWindowId;
-					if (!popupWindowId || tab.windowId !== popupWindowId) {
+					if (!isModalWindow(tab.windowId)) {
 						lastNonPopupUrl = tab.url ?? lastNonPopupUrl;
 					}
 				}
 
-				const isPopupTab = popupWindowId && currentActiveTabWindowId === popupWindowId;
+				const isPopupTab = isModalWindow(currentActiveTabWindowId);
 				if (isPopupTab && !lastNonPopupUrl) {
 					lastNonPopupUrl = currentVisitedUrl;
 				}
@@ -257,6 +339,10 @@ function watchAlarms() {
 	try {
 		chromeApi.alarms?.onAlarm.addListener((alarm: any) => {
 			if (!alarm?.name) return;
+			if (alarm.name === EXPERIMENT_ALARM_NAME) {
+				void experimentManager.refreshExperimentState('alarm');
+				return;
+			}
 			navQueue = navQueue.then(async () => {
 				await ensureNavStateLoaded();
 				const isTrigger = await getActiveTriggerState();
@@ -264,6 +350,57 @@ function watchAlarms() {
 			});
 		});
 	} catch (e) {}
+}
+
+// Handle first install to create the user id and show onboarding.
+function watchInstall() {
+	try {
+		chromeApi.runtime?.onInstalled?.addListener((details: any) => {
+			if (details?.reason === 'install') {
+				void experimentManager.handleFirstInstall();
+			}
+		});
+	} catch (e) {}
+}
+
+async function openExperimentPopup(mode: 'welcome' | 'overlay' | 'complete'): Promise<boolean> {
+	try {
+		if (!chromeApi?.runtime?.getURL) return false;
+		if (experimentPopupWindowId) {
+			updateDimState();
+			return true;
+		}
+		const existingId = await findExistingExperimentPopupWindow();
+		if (existingId) {
+			experimentPopupWindowId = existingId;
+			updateDimState();
+			return true;
+		}
+		const currentWindow = await getCurrentWindow();
+		const left = currentWindow?.left ?? 0;
+		const top = currentWindow?.top ?? 0;
+		const width = currentWindow?.width ?? POPUP_BASE_WIDTH;
+		const height = currentWindow?.height ?? POPUP_BASE_HEIGHT;
+		const popupWidth = clamp(Math.round(width * POPUP_WIDTH_RATIO), POPUP_MIN_WIDTH, POPUP_MAX_WIDTH);
+		const popupHeight = clamp(Math.round(height * POPUP_HEIGHT_RATIO), POPUP_MIN_HEIGHT, POPUP_MAX_HEIGHT);
+		const popupLeft = Math.round(left + Math.max(0, (width - popupWidth) / 2));
+		const popupTop = Math.round(top + Math.max(0, (height - popupHeight) / 2));
+		const url = chromeApi.runtime.getURL(`experiment.html?mode=${mode}`);
+		const popup = await createWindow({
+			url,
+			type: 'popup',
+			width: popupWidth,
+			height: popupHeight,
+			left: popupLeft,
+			top: popupTop,
+			focused: true,
+		});
+		experimentPopupWindowId = popup?.id ?? null;
+		updateDimState();
+		return true;
+	} catch (e) {
+		return false;
+	}
 }
 
 // Load trigger sites and delay settings from storage.
@@ -280,7 +417,7 @@ async function refreshSettings() {
 		delayManager.setEnabled(popupEnabled);
 		if (!popupEnabled) {
 			closePopup();
-			hideDimAllTabs();
+			updateDimState();
 		}
 	} catch (e) {
 		cachedTriggerSites = [];
@@ -292,20 +429,50 @@ async function refreshSettings() {
 	}
 }
 
+async function setPopupEnabledManaged(enabled: boolean) {
+	if (popupEnabled === enabled) return;
+	popupEnabled = enabled;
+	delayManager.setEnabled(enabled);
+	await setToStorage({ popupEnabled: enabled });
+	if (!enabled) {
+		closePopup();
+		updateDimState();
+	}
+}
+
 // Update context for the active tab and active-time tracking.
 function updateActiveContext() {
 	navQueue = navQueue.then(async () => {
 		await ensureNavStateLoaded();
 		await ensureSettingsLoaded();
-		const isPopupTab = popupWindowId && currentActiveTabWindowId === popupWindowId;
+		const isPopupTab = isModalWindow(currentActiveTabWindowId);
 		if (isPopupTab && !lastNonPopupUrl) {
 			lastNonPopupUrl = currentVisitedUrl;
 		}
 		const href = isPopupTab ? lastNonPopupUrl : currentActiveTabUrl;
 		if (!href) return;
-		const isTrigger = !!(href && findMatchKey(href, cachedTriggerSites));
+		const domain = findMatchKey(href, cachedTriggerSites);
+		console.log(domain);
+		const isTrigger = !!(href && domain);
+		if (isTrigger) {
+			if (!activeVisitStartTs && domain) {
+				activeVisitStartTs = Date.now();
+				activeVisitDomain = domain;
+				console.log(
+					"start active visit for domain",
+					domain,
+					"at",
+					new Date(activeVisitStartTs).toISOString(),
+				);
+			}
+		}
+		if (!isTrigger && activeVisitStartTs && activeVisitDomain) {
+			endActiveVisit('exit');
+		}
+
 		currentVisitedUrl = href;
 		currentVisitedIsTrigger = isTrigger;
+
 		persistNavState();
 
 		delayManager.updateContext(isTrigger);
@@ -313,6 +480,27 @@ function updateActiveContext() {
 			ensureDimOnActiveTab();
 		}
 	});
+	
+}
+
+function endActiveVisit(reason: string) {
+	if (!activeVisitStartTs || !activeVisitDomain) return;
+	const durationMs = Date.now() - activeVisitStartTs;
+	const durationMinutes = durationMs / 60000;
+	console.log(
+		"end active visit for domain",
+		activeVisitDomain,
+		"at",
+		new Date().toISOString(),
+		"duration minutes:",
+		durationMinutes.toFixed(2),
+		"reason:",
+		reason,
+	);
+	dbLogger.logVisit(activeVisitDomain, durationMinutes);
+
+	activeVisitStartTs = null;
+	activeVisitDomain = null;
 }
 
 // Ensure the active tab shows the dim overlay when a popup is open.
@@ -412,10 +600,20 @@ async function syncExistingPopupWindow() {
 	} catch (e) {}
 }
 
+async function syncExistingExperimentPopupWindow() {
+	try {
+		const existingId = await findExistingExperimentPopupWindow();
+		if (existingId) {
+			experimentPopupWindowId = existingId;
+			showDimAllTabs();
+		}
+	} catch (e) {}
+}
+
 // Close the popup window and clear dim overlays.
 function closePopup() {
 	if (!popupWindowId) {
-		hideDimAllTabs();
+		updateDimState();
 		return;
 	}
 	const toClose = popupWindowId;
@@ -424,16 +622,68 @@ function closePopup() {
 
 	try {
 		chromeApi.windows.remove(toClose, () => {
-			hideDimAllTabs();
+				const err = chromeApi.runtime.lastError;
+			if (err) {
+				updateDimState();
+				refreshActiveTab();
+				return;
+			}
+			updateDimState();
 			refreshActiveTab();
 		});
 	} catch (e) {
-		hideDimAllTabs();
+		updateDimState();
+		refreshActiveTab();
+	}
+}
+
+function closeExperimentPopup() {
+	if (!experimentPopupWindowId) {
+		updateDimState();
+		return;
+	}
+	const toClose = experimentPopupWindowId;
+	experimentPopupWindowId = null;
+	suppressNullActiveUpdate = true;
+
+	try {
+		chromeApi.windows.remove(toClose, () => {
+			const err = chromeApi.runtime.lastError;
+			if (err) {
+				updateDimState();
+				refreshActiveTab();
+				return;
+			}
+			updateDimState();
+			refreshActiveTab();
+		});
+	} catch (e) {
+		updateDimState();
 		refreshActiveTab();
 	}
 }
 
 // Broadcast a show-dim command to all tabs.
+function isModalWindow(windowId: number | null | undefined): boolean {
+	if (!windowId && windowId !== 0) return false;
+	return (
+		(!!popupWindowId && windowId === popupWindowId) ||
+		(!!experimentPopupWindowId && windowId === experimentPopupWindowId)
+	);
+}
+
+function hasModalOpen(): boolean {
+	return !!popupWindowId || !!experimentPopupWindowId;
+}
+
+function updateDimState() {
+	if (hasModalOpen()) {
+		showDimAllTabs();
+	} else {
+		hideDimAllTabs();
+	}
+}
+
 function showDimAllTabs() {
 	broadcastToTabs({ type: 'show-dim' });
 }
@@ -476,7 +726,10 @@ function ensureOverlayInjected(tab: any) {
 			() => {
 				if (chromeApi.runtime.lastError) return;
 				try {
-					chromeApi.tabs.sendMessage(tab.id, { type: 'show-dim' }, () => {});
+					chromeApi.tabs.sendMessage(tab.id, { type: 'show-dim' }, () => {
+						const err = chromeApi.runtime.lastError;
+						if (err) return;
+					});
 				} catch (e) {}
 			},
 		);
@@ -586,6 +839,18 @@ function getFromStorage(keys: string[]): Promise<any> {
 	});
 }
 
+function setToStorage(values: Record<string, any>): Promise<void> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.set(values, () => {
+				resolve();
+			});
+		} catch (e) {
+			resolve();
+		}
+	});
+}
+
 // Promisified wrapper around chrome.windows.getCurrent.
 function getCurrentWindow(): Promise<any> {
 	return new Promise((resolve) => {
@@ -608,6 +873,39 @@ function findExistingPopupWindow(): Promise<number | null> {
 					if (win?.type !== 'popup') continue;
 					const tabs = Array.isArray(win.tabs) ? win.tabs : [];
 					const match = tabs.find((tab: any) => typeof tab?.url === 'string' && tab.url.startsWith(GAME_URL));
+					if (match && win.id) matches.push(win.id);
+				}
+				if (matches.length === 0) return resolve(null);
+				const [keep, ...extras] = matches;
+				extras.forEach((id) => {
+					try {
+						chromeApi.windows.remove(id, () => {});
+					} catch (e) {}
+				});
+				resolve(keep ?? null);
+			});
+		} catch (e) {
+			resolve(null);
+		}
+	});
+}
+
+function findExistingExperimentPopupWindow(): Promise<number | null> {
+	return new Promise((resolve) => {
+		try {
+			const prefix = chromeApi?.runtime?.getURL
+				? chromeApi.runtime.getURL('experiment.html')
+				: null;
+			if (!prefix) return resolve(null);
+			chromeApi.windows.getAll({ populate: true }, (windows: any[]) => {
+				if (!Array.isArray(windows)) return resolve(null);
+				const matches: number[] = [];
+				for (const win of windows) {
+					if (win?.type !== 'popup') continue;
+					const tabs = Array.isArray(win.tabs) ? win.tabs : [];
+					const match = tabs.find(
+						(tab: any) => typeof tab?.url === 'string' && tab.url.startsWith(prefix),
+					);
 					if (match && win.id) matches.push(win.id);
 				}
 				if (matches.length === 0) return resolve(null);
