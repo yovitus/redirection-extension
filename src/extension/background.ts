@@ -35,9 +35,13 @@ const POPUP_MIN_HEIGHT = 480;
 const POPUP_MAX_HEIGHT = 820;
 const POPUP_ZOOM = 0.9;
 const BREAK_THRESHOLD_MS = 2 * 60 * 1000;
+const MIN_LOGGED_VISIT_MS = 5 * 1000;
+const GAME_OVERLAY_DOMAIN = 'focular-game-overlay';
+const TAB_POPUP_SUPPRESS_MS = 5 * 1000;
 
 let activeVisitStartTs: number | null = null;
 let activeVisitDomain: string | null = null;
+let gameOverlayStartTs: number | null = null;
 
 let cachedTriggerSites: string[] = [];
 let popupWindowId: number | null = null;
@@ -48,6 +52,7 @@ let currentVisitedIsTrigger = false;
 let currentActiveTabId: number | null = null;
 let currentActiveTabUrl: string | null = null;
 let currentActiveTabWindowId: number | null = null;
+let currentTriggerDomain: string | null = null;
 let lastNonPopupUrl: string | null = null;
 let suppressNullActiveUpdate = false;
 let windowFocused = true;
@@ -58,6 +63,7 @@ let settingsLoaded = false;
 let settingsPromise: Promise<void> | null = null;
 let popupDelayMs = 0;
 let popupEnabled = false;
+const popupShownByTabAndDomain = new Map<number, { domain: string; shownAt: number }>();
 const delayManager = createDelayManager({
 	getStorage: getDelayStorage,
 	openPopup: () => openPopup(),
@@ -156,6 +162,7 @@ function handleOverlayReady(sender: any) {
 			if (!existingGameId && !existingExperimentId) return;
 			if (existingGameId) {
 				popupWindowId = existingGameId;
+				startGameOverlaySession();
 				applyPopupZoom(popupWindowId);
 			}
 			if (existingExperimentId) {
@@ -236,11 +243,13 @@ function watchTabs() {
 		});
 
 		chromeApi.tabs.onRemoved.addListener((tabId: number) => {
+			popupShownByTabAndDomain.delete(tabId);
 			if (tabId === currentActiveTabId) {
 				endActiveVisit('tab-closed');
 				currentActiveTabId = null;
 				currentActiveTabUrl = null;
 				currentActiveTabWindowId = null;
+				currentTriggerDomain = null;
 				if (suppressNullActiveUpdate) {
 					suppressNullActiveUpdate = false;
 					return;
@@ -276,6 +285,7 @@ function watchWindows() {
 
 		chromeApi.windows.onRemoved.addListener((windowId: number) => {
 			if (popupWindowId === windowId) {
+				endGameOverlaySession('window-removed');
 				popupWindowId = null;
 				suppressNullActiveUpdate = true;
 				updateDimState();
@@ -299,6 +309,7 @@ function refreshActiveTab() {
 			currentActiveTabId = tab?.id ?? null;
 			currentActiveTabUrl = tab?.url ?? null;
 			currentActiveTabWindowId = tab?.windowId ?? null;
+			currentTriggerDomain = null;
 			if (!isModalWindow(tab?.windowId ?? null)) {
 				lastNonPopupUrl = tab?.url ?? null;
 			}
@@ -330,6 +341,7 @@ function getActiveTriggerState(): Promise<boolean> {
 				if (!href) return resolve(currentVisitedIsTrigger);
 
 				const isTrigger = !!findMatchKey(href, cachedTriggerSites);
+				currentTriggerDomain = isTrigger ? findMatchKey(href, cachedTriggerSites) : null;
 				currentVisitedUrl = href;
 				currentVisitedIsTrigger = isTrigger;
 				persistNavState();
@@ -364,7 +376,10 @@ function watchInstall() {
 	try {
 		chromeApi.runtime?.onInstalled?.addListener((details: any) => {
 			if (details?.reason === 'install') {
-				void experimentManager.handleFirstInstall();
+				void (async () => {
+					await experimentManager.handleFirstInstall();
+					await openExtensionPopupWithFallback();
+				})();
 			}
 		});
 	} catch (e) {}
@@ -457,11 +472,18 @@ function updateActiveContext() {
 			lastNonPopupUrl = currentVisitedUrl;
 		}
 		const href = isPopupTab ? lastNonPopupUrl : currentActiveTabUrl;
-		if (!href) return;
+		if (!href) {
+			if (popupWindowId && activeVisitStartTs && activeVisitDomain) {
+				endActiveVisit('popup-open');
+			}
+			return;
+		}
 		const domain = findMatchKey(href, cachedTriggerSites);
 		console.log(domain);
 		const isTrigger = !!(href && domain);
-		if (isTrigger) {
+		currentTriggerDomain = isTrigger ? domain : null;
+		const shouldTrackActiveVisit = isTrigger && !popupWindowId;
+		if (shouldTrackActiveVisit) {
 			if (!activeVisitStartTs && domain) {
 				activeVisitStartTs = Date.now();
 				activeVisitDomain = domain;
@@ -473,8 +495,8 @@ function updateActiveContext() {
 				);
 			}
 		}
-		if (!isTrigger && activeVisitStartTs && activeVisitDomain) {
-			endActiveVisit('exit');
+		if (!shouldTrackActiveVisit && activeVisitStartTs && activeVisitDomain) {
+			endActiveVisit(isTrigger ? 'popup-open' : 'exit');
 		}
 
 		currentVisitedUrl = href;
@@ -494,6 +516,19 @@ function endActiveVisit(reason: string) {
 	if (!activeVisitStartTs || !activeVisitDomain) return;
 	const durationMs = Date.now() - activeVisitStartTs;
 	const durationMinutes = durationMs / 60000;
+	if (durationMs <= MIN_LOGGED_VISIT_MS) {
+		console.log(
+			"skip active visit log for domain",
+			activeVisitDomain,
+			"duration ms:",
+			durationMs,
+			"reason:",
+			reason,
+		);
+		activeVisitStartTs = null;
+		activeVisitDomain = null;
+		return;
+	}
 	console.log(
 		"end active visit for domain",
 		activeVisitDomain,
@@ -554,13 +589,20 @@ function findMatchKey(href: string, patterns: string[]): string | null {
 
 // Open the game popup window and dim all tabs.
 async function openPopup() {
-	if (popupWindowId || openingPopup) return;
+	if (shouldSuppressPopupForCurrentTab()) return;
+	if (popupWindowId) {
+		startGameOverlaySession();
+		return;
+	}
+	if (openingPopup) return;
 	openingPopup = true;
 
 	try {
 		const existingId = await findExistingPopupWindow();
 		if (existingId) {
 			popupWindowId = existingId;
+			markPopupShownForCurrentTab();
+			startGameOverlaySession();
 			applyPopupZoom(popupWindowId);
 			showDimAllTabs();
 			return;
@@ -586,6 +628,8 @@ async function openPopup() {
 		});
 
 		popupWindowId = popup?.id ?? null;
+		markPopupShownForCurrentTab();
+		startGameOverlaySession();
 		applyPopupZoom(popupWindowId);
 		showDimAllTabs();
 	} catch (e) {
@@ -601,6 +645,8 @@ async function syncExistingPopupWindow() {
 		const existingId = await findExistingPopupWindow();
 		if (existingId) {
 			popupWindowId = existingId;
+			markPopupShownForCurrentTab();
+			startGameOverlaySession();
 			applyPopupZoom(popupWindowId);
 			showDimAllTabs();
 		}
@@ -623,6 +669,7 @@ function closePopup() {
 		updateDimState();
 		return;
 	}
+	endGameOverlaySession('close-popup');
 	const toClose = popupWindowId;
 	popupWindowId = null;
 	suppressNullActiveUpdate = true;
@@ -783,6 +830,56 @@ function isModalWindow(windowId: number | null | undefined): boolean {
 
 function hasModalOpen(): boolean {
 	return !!popupWindowId;
+}
+
+function startGameOverlaySession() {
+	if (!popupWindowId) return;
+	if (gameOverlayStartTs) return;
+	gameOverlayStartTs = Date.now();
+}
+
+function shouldSuppressPopupForCurrentTab(): boolean {
+	if (!currentVisitedIsTrigger) return false;
+	if (!currentActiveTabId || !currentTriggerDomain) return false;
+	const record = popupShownByTabAndDomain.get(currentActiveTabId);
+	if (!record) return false;
+	if (record.domain !== currentTriggerDomain) return false;
+	if (Date.now() - record.shownAt <= TAB_POPUP_SUPPRESS_MS) {
+		popupShownByTabAndDomain.set(currentActiveTabId, {
+			domain: record.domain,
+			shownAt: Date.now(),
+		});
+		return true;
+	}
+	popupShownByTabAndDomain.delete(currentActiveTabId);
+	return false;
+}
+
+function markPopupShownForCurrentTab() {
+	if (!currentActiveTabId || !currentTriggerDomain) return;
+	popupShownByTabAndDomain.set(currentActiveTabId, {
+		domain: currentTriggerDomain,
+		shownAt: Date.now(),
+	});
+}
+
+function endGameOverlaySession(reason: string) {
+	if (!gameOverlayStartTs) return;
+	const durationMs = Date.now() - gameOverlayStartTs;
+	const durationMinutes = durationMs / 60000;
+	console.log(
+		'end game overlay session',
+		'at',
+		new Date().toISOString(),
+		'duration minutes:',
+		durationMinutes.toFixed(2),
+		'reason:',
+		reason,
+	);
+	if (durationMs > MIN_LOGGED_VISIT_MS) {
+		void dbLogger.logVisit(GAME_OVERLAY_DOMAIN, durationMinutes);
+	}
+	gameOverlayStartTs = null;
 }
 
 function updateDimState() {
