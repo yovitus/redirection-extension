@@ -372,6 +372,33 @@
       font-size: 13px;
       border-width: 1px;
     }
+    .trigger-autocomplete-menu {
+      position: absolute;
+      z-index: 25;
+      max-height: 180px;
+      overflow-y: auto;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.14);
+      padding: 4px;
+    }
+    .trigger-autocomplete-item {
+      width: 100%;
+      border: none;
+      background: transparent;
+      text-align: left;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: #1f2937;
+      cursor: pointer;
+    }
+    .trigger-autocomplete-item:hover,
+    .trigger-autocomplete-item.active {
+      background: #eaf0ff;
+      color: #1f3fd6;
+    }
     .gate-setup-list {
       display: flex;
       flex-wrap: wrap;
