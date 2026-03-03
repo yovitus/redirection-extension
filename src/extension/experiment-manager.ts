@@ -1,8 +1,8 @@
 import { DbLogger } from './dblogger';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const EXPERIMENT_OVERLAY_DAYS = 7;
-const EXPERIMENT_TOTAL_DAYS = 14;
+const EXPERIMENT_OVERLAY_DAYS = 3;
+const EXPERIMENT_TOTAL_DAYS = 6;
 export const EXPERIMENT_ALARM_NAME = 'focular-experiment-alarm';
 const EXPERIMENT_STATE_KEY = 'experimentState';
 
@@ -131,10 +131,11 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 	async function ensureExperimentState(): Promise<ExperimentState> {
 		const stored = await loadExperimentState();
 		if (stored) return stored;
+		const startAt = getNextLocalMidnight(Date.now());
 		const initial: ExperimentState = {
-			startAt: Date.now(),
+			startAt,
 			phase: 'logging',
-			experimentStartAt: Date.now() + 1 * 60 * 1000,
+			experimentStartAt: startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS,
 			onboardingShown: false,
 			overlayShown: false,
 			completionShown: false,
@@ -249,5 +250,11 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 	function resolveDelayOptionByLabel(label: string | null): DelayTimerOption | null {
 		if (!label) return null;
 		return DELAY_TIMER_OPTIONS.find((option) => option.label === label) ?? null;
+	}
+
+	function getNextLocalMidnight(nowMs: number): number {
+		const next = new Date(nowMs);
+		next.setHours(24, 0, 0, 0);
+		return next.getTime();
 	}
 }

@@ -51,7 +51,7 @@ export class DbLogger {
 			user_id: userId,
 		};
 		if (typeof experimentStartAt === 'number') {
-			payload.experiment_start_at = new Date(experimentStartAt + 1 * 60 * 1000).toISOString();
+			payload.experiment_start_at = new Date(experimentStartAt).toISOString();
 		}
 		if (typeof experimentPhase === 'string') {
 			payload.experiment_phase = experimentPhase;
