@@ -233,7 +233,7 @@
       margin-top: 10px;
     }
     .hidden {
-      display: none;
+      display: none !important;
     }
     .experiment-card {
       margin-top: 14px;
@@ -275,61 +275,324 @@
       color: #666;
       font-size: 11px;
     }
+    .gate-screen {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .gate-badge {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #3d4ed7;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .gate-subtitle {
+      color: #555;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .gate-timeline {
+      border: 1px solid #eee;
+      border-radius: 10px;
+      background: #fafafa;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .gate-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .gate-label {
+      font-weight: 700;
+      color: #333;
+    }
+    .gate-value {
+      color: #444;
+      font-size: 12px;
+      text-align: right;
+    }
+    .gate-note {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.4;
+    }
+    .gate-setup {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .gate-setup-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .gate-setup-help {
+      font-size: 11px;
+      color: #475569;
+      line-height: 1.4;
+    }
+    .gate-setup-row {
+      display: flex;
+      gap: 8px;
+    }
+    .gate-setup-input {
+      flex: 1;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 9px 10px;
+      font-size: 13px;
+      outline: none;
+      background: #fff;
+      color: #1f2937;
+    }
+    .gate-setup-input:focus {
+      border-color: #4f7cff;
+      box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.18);
+    }
+    .gate-setup-add-btn {
+      width: auto;
+      min-width: 74px;
+      padding: 9px 12px;
+      font-size: 13px;
+      border-width: 1px;
+    }
+    .gate-setup-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .gate-setup-pill {
+      border-radius: 999px;
+      background: #e2e8f0;
+      color: #1e293b;
+      font-size: 12px;
+      padding: 4px 10px;
+    }
+    .gate-feedback {
+      font-size: 12px;
+      line-height: 1.4;
+      min-height: 16px;
+      color: #4b5563;
+    }
+    .gate-feedback.error {
+      color: #b91c1c;
+    }
+    .gate-feedback.ok {
+      color: #166534;
+    }
+    .gate-consent-row {
+      display: flex;
+      gap: 10px;
+    }
+    .gate-consent-row .btn {
+      flex: 1;
+    }
+    .btn.gate-consent-yes {
+      background: #1f9d45;
+    }
+    .btn.gate-consent-no {
+      background: #d93a3a;
+    }
+    .btn.gate-consent-yes:hover {
+      box-shadow: 0 6px 14px rgba(31, 157, 69, 0.35);
+    }
+    .btn.gate-consent-no:hover {
+      box-shadow: 0 6px 14px rgba(217, 58, 58, 0.35);
+    }
+    .gate-consent-info-btn {
+      margin-top: -2px;
+      font-size: 13px;
+      padding: 10px;
+      border-width: 1px;
+    }
+    .btn.consent-selected {
+      outline: 2px solid rgba(255, 255, 255, 0.65);
+      outline-offset: 1px;
+    }
+    .gate-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 20;
+    }
+    .gate-modal-backdrop.hidden {
+      display: none;
+    }
+    .gate-modal-card {
+      width: 100%;
+      max-width: 420px;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .gate-modal-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .gate-modal-text {
+      font-size: 13px;
+      color: #374151;
+      line-height: 1.5;
+    }
+    .gate-modal-list {
+      margin-left: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 13px;
+      color: #374151;
+      line-height: 1.4;
+    }
+    .gate-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+    .gate-modal-actions .btn {
+      width: auto;
+      min-width: 112px;
+      margin-top: 0;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Focular</h1>
-    <p class="subtitle">Choose where the popup appears. Game is fixed to Sudoku.</p>
+    <div id="consent-gate" class="gate-screen hidden">
+      <div class="gate-badge">Welcome</div>
+      <h1>Welcome to Focular12</h1>
+      <p class="gate-subtitle">
+        This experiment lasts 14 days. Week 1 logs ONLY visits to sites that you have added to your Focal list. Week 2 enables the procrastination overlay.
+      </p>
 
-    <div id="experiment-status" class="experiment-card hidden">
-      <div class="experiment-row">
-        <div class="experiment-label">Experiment</div>
-        <div class="experiment-badge" id="experiment-phase">Week 1</div>
-      </div>
-      <div class="experiment-text" id="experiment-summary"></div>
-      <div class="experiment-dates" id="experiment-dates"></div>
-    </div>
-
-    <div class="section">
-      <div class="toggle-row">
-        <div class="toggle-label">
-          <div class="toggle-title" id="popup-toggle-title">Popup enabled</div>
-          <div class="toggle-subtitle" id="popup-toggle-subtitle">Turn all popup logic on or off.</div>
+      <div class="gate-timeline">
+        <div class="gate-row">
+          <div class="gate-label">Week 1</div>
+          <div class="gate-value" id="gate-week1-range">Logging only</div>
         </div>
-        <label class="switch" aria-label="Popup enabled">
-          <input type="checkbox" id="popup-enabled">
-          <span class="slider"></span>
-        </label>
+        <div class="gate-row">
+          <div class="gate-label">Week 2</div>
+          <div class="gate-value" id="gate-week2-range">Overlay enabled</div>
+        </div>
       </div>
+
+      <div class="gate-note" id="gate-note">
+        Overlay turns on automatically.
+      </div>
+
+      <div class="gate-setup">
+        <div class="gate-setup-title">Add at least 2 trigger sites before continuing</div>
+        <div class="gate-setup-help">You can add or edit more later from the extension popup.</div>
+        <div class="gate-setup-row">
+          <input class="gate-setup-input" id="gate-trigger-site-input" type="text" placeholder="e.g. youtube.com">
+          <button class="btn-secondary gate-setup-add-btn" id="gate-add-trigger-site-btn" type="button">Add</button>
+        </div>
+        <div class="gate-setup-list" id="gate-trigger-site-list"></div>
+        <div class="gate-feedback" id="gate-trigger-feedback"></div>
+      </div>
+
+      <div class="gate-consent-row">
+        <button class="btn gate-consent-yes" id="gate-consent-yes-btn" type="button">I Consent</button>
+        <button class="btn gate-consent-no" id="gate-consent-no-btn" type="button">I do not consent</button>
+      </div>
+      <button class="btn-secondary gate-consent-info-btn" id="gate-consent-info-btn" type="button">What am I consenting to?</button>
+      <div class="gate-feedback" id="gate-consent-feedback"></div>
     </div>
 
-    <div id="popup-settings">
+    <div id="popup-main" class="hidden">
+      <h1>Focular</h1>
+      <p class="subtitle">Choose where the popup appears. Game is fixed to Sudoku.</p>
+
+      <div id="experiment-status" class="experiment-card hidden">
+        <div class="experiment-row">
+          <div class="experiment-label">Experiment</div>
+          <div class="experiment-badge" id="experiment-phase">Week 1</div>
+        </div>
+        <div class="experiment-text" id="experiment-summary"></div>
+        <div class="experiment-dates" id="experiment-dates"></div>
+      </div>
+
       <div class="section">
-        <label class="section-title" for="trigger-url">Trigger websites</label>
-        <p class="help-text">Pages that should show the game overlay. Example: example.com</p>
-        <div class="form-group">
-          <input type="text" id="trigger-url" placeholder="example.com" autocomplete="off" autofocus>
+        <div class="toggle-row">
+          <div class="toggle-label">
+            <div class="toggle-title" id="popup-toggle-title">Popup enabled</div>
+            <div class="toggle-subtitle" id="popup-toggle-subtitle">Turn all popup logic on or off.</div>
+          </div>
+          <label class="switch" aria-label="Popup enabled">
+            <input type="checkbox" id="popup-enabled">
+            <span class="slider"></span>
+          </label>
         </div>
-        <button class="btn" id="save-trigger-btn" title="Add trigger site">Add trigger site</button>
-        <div id="trigger-sites-list" class="list"></div>
+      </div>
+
+      <div id="popup-settings">
+        <div class="section">
+          <label class="section-title" for="trigger-url">Trigger websites</label>
+          <p class="help-text">Pages that should show the game overlay. Example: example.com</p>
+          <div class="form-group">
+            <input type="text" id="trigger-url" placeholder="example.com" autocomplete="off">
+          </div>
+          <button class="btn" id="save-trigger-btn" title="Add trigger site">Add trigger site</button>
+          <div id="trigger-sites-list" class="list"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <label class="section-title">Popup delay</label>
+        <p class="help-text">How long to wait before the popup appears.</p>
+        <div class="button-row" role="group" aria-label="Popup delay options">
+          <button class="delay-btn" data-delay="0" type="button">Instant</button>
+          <button class="delay-btn" data-delay="300000" type="button">5 min</button>
+          <button class="delay-btn" data-delay="600000" type="button">10 min</button>
+        </div>
+        <div id="delay-timer" class="timer-card hidden">
+          <div class="timer-label" id="delay-timer-label">Timer</div>
+          <div class="timer-value" id="delay-timer-value">--:--</div>
+        </div>
       </div>
     </div>
+  </div>
 
-    <div class="section">
-      <label class="section-title">Popup delay</label>
-      <p class="help-text">How long to wait before the popup appears.</p>
-      <div class="button-row" role="group" aria-label="Popup delay options">
-        <button class="delay-btn" data-delay="0" type="button">Instant</button>
-        <button class="delay-btn" data-delay="300000" type="button">5 min</button>
-        <button class="delay-btn" data-delay="600000" type="button">10 min</button>
-      </div>
-      <div id="delay-timer" class="timer-card hidden">
-        <div class="timer-label" id="delay-timer-label">Timer</div>
-        <div class="timer-value" id="delay-timer-value">--:--</div>
+  <div class="gate-modal-backdrop hidden" id="gate-consent-modal" role="dialog" aria-modal="true" aria-labelledby="gate-consent-modal-title">
+    <div class="gate-modal-card">
+      <div class="gate-modal-title" id="gate-consent-modal-title">Consent information</div>
+      <p class="gate-modal-text">
+        By selecting "I Consent", you agree to participate in this study and allow Focular to log limited usage data.
+      </p>
+      <ul class="gate-modal-list">
+        <li>We log only time spent on websites that you add as trigger sites.</li>
+        <li>We do not log browsing activity for websites you did not add.</li>
+        <li>We do not collect page content, text you type, passwords, or form inputs.</li>
+        <li>You can edit your trigger sites at any time from the Focular extension popup.</li>
+      </ul>
+      <div class="gate-modal-actions">
+        <button class="btn" id="gate-close-consent-modal-btn" type="button">I understand</button>
       </div>
     </div>
-
   </div>
 
   <script src="popup.js"></script>

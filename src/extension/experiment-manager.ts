@@ -56,11 +56,8 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		await options.dbLogger.logUserCreated(state.startAt, state.phase);
 		await ensureInitialDelayChoice();
 		if (!state.onboardingShown) {
-			const didOpen = await options.openExperimentPopup('welcome');
-			if (didOpen) {
-				state.onboardingShown = true;
-				await saveExperimentState(state);
-			}
+			state.onboardingShown = true;
+			await saveExperimentState(state);
 		}
 	}
 
