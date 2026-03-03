@@ -9,20 +9,8 @@ import { normalizeStoredList } from './utils/list-utils';
 // Use chrome from window to avoid duplicate ambient declarations
 const chromeApi: any = (window as any).chrome;
 
-window.addEventListener('DOMContentLoaded', () => {
-	setupLists();
-	setupDelayButtons();
-	setupPopupToggle();
-	setupStorageListener();
-	focusInput('trigger-url');
-	renderAllLists();
-	renderDelayButtons();
-	renderPopupToggle();
-	renderDelayTimer();
-	renderExperimentStatus();
-});
-
 type ListKey = 'triggerSites';
+type ConsentChoice = boolean | null;
 
 type ExperimentPhase = 'logging' | 'overlay' | 'completed';
 
@@ -59,6 +47,253 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const EXPERIMENT_OVERLAY_DAYS = 7;
 const EXPERIMENT_TOTAL_DAYS = 14;
 const EXPERIMENT_STATE_KEY = 'experimentState';
+const EXPERIMENT_CONSENT_KEY = 'experimentConsentGiven';
+const EXPERIMENT_ONBOARDING_COMPLETE_KEY = 'experimentOnboardingComplete';
+const MIN_TRIGGER_SITES_REQUIRED = 2;
+
+let mainPopupInitialized = false;
+let consentGateInitialized = false;
+const listRenderVersionById = new Map<string, number>();
+
+window.addEventListener('DOMContentLoaded', () => {
+	setupStorageListener();
+	setupConsentGate();
+	void bootstrapPopupView();
+});
+
+async function bootstrapPopupView() {
+	await migrateTriggerSitesToCanonicalValues();
+	await renderPopupView();
+}
+
+async function renderPopupView() {
+	const [sites, consentChoice, onboardingComplete] = await Promise.all([
+		getList('triggerSites'),
+		getExperimentConsentChoice(),
+		getExperimentOnboardingComplete(),
+	]);
+	if (onboardingComplete) {
+		setPopupViewVisibility(true);
+		if (!mainPopupInitialized) {
+			initMainPopup();
+		}
+		await renderMainPopup();
+		return;
+	}
+	const hasMinimumSites = sites.length >= MIN_TRIGGER_SITES_REQUIRED;
+	const canShowMainPopup = consentChoice === true && hasMinimumSites;
+	if (canShowMainPopup) {
+		try {
+			await setExperimentOnboardingComplete(true);
+		} catch (e) {
+			console.warn('Failed to persist onboarding completion', e);
+		}
+		setPopupViewVisibility(true);
+		if (!mainPopupInitialized) {
+			initMainPopup();
+		}
+		await renderMainPopup();
+		return;
+	}
+
+	setPopupViewVisibility(canShowMainPopup);
+
+	await renderConsentGate(sites, consentChoice);
+	focusInput('gate-trigger-site-input');
+	stopTimerInterval();
+}
+
+function setPopupViewVisibility(showMain: boolean) {
+	const gate = document.getElementById('consent-gate');
+	const main = document.getElementById('popup-main');
+	if (gate) {
+		gate.classList.toggle('hidden', showMain);
+		gate.style.display = showMain ? 'none' : 'flex';
+	}
+	if (main) {
+		main.classList.toggle('hidden', !showMain);
+		main.style.display = showMain ? 'block' : 'none';
+	}
+}
+
+function initMainPopup() {
+	if (mainPopupInitialized) return;
+	mainPopupInitialized = true;
+	setupLists();
+	setupDelayButtons();
+	setupPopupToggle();
+	focusInput('trigger-url');
+}
+
+async function renderMainPopup() {
+	await renderAllLists();
+	await renderDelayButtons();
+	await renderPopupToggle();
+	await renderDelayTimer();
+	await renderExperimentStatus();
+}
+
+function setupConsentGate() {
+	if (consentGateInitialized) return;
+	consentGateInitialized = true;
+
+	const triggerInput = document.getElementById('gate-trigger-site-input') as HTMLInputElement | null;
+	const addTriggerButton = document.getElementById('gate-add-trigger-site-btn') as HTMLButtonElement | null;
+	const consentYesButton = document.getElementById('gate-consent-yes-btn') as HTMLButtonElement | null;
+	const consentNoButton = document.getElementById('gate-consent-no-btn') as HTMLButtonElement | null;
+	const consentInfoButton = document.getElementById('gate-consent-info-btn') as HTMLButtonElement | null;
+	const consentModal = document.getElementById('gate-consent-modal');
+	const closeConsentModalButton = document.getElementById('gate-close-consent-modal-btn') as HTMLButtonElement | null;
+
+	const addGateTriggerSite = async () => {
+		const raw = (triggerInput?.value || '').trim();
+		if (!raw) {
+			setGateFeedback('gate-trigger-feedback', 'Enter a site first (for example: youtube.com).', true);
+			return;
+		}
+		const normalized = normalizeTriggerSite(raw);
+		if (!normalized) {
+			setGateFeedback('gate-trigger-feedback', 'That site format is not valid.', true);
+			return;
+		}
+		try {
+			const current = await getList('triggerSites');
+			if (!current.includes(normalized)) {
+				current.push(normalized);
+				await setList('triggerSites', current);
+			}
+			if (triggerInput) triggerInput.value = '';
+			await renderPopupView();
+		} catch (e) {
+			console.warn('Failed to save onboarding trigger site', e);
+		}
+	};
+
+	addTriggerButton?.addEventListener('click', () => {
+		void addGateTriggerSite();
+	});
+	triggerInput?.addEventListener('keydown', (event) => {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		void addGateTriggerSite();
+	});
+
+	const openConsentModal = () => {
+		consentModal?.classList.remove('hidden');
+	};
+	const closeConsentModal = () => {
+		consentModal?.classList.add('hidden');
+	};
+
+	consentInfoButton?.addEventListener('click', openConsentModal);
+	closeConsentModalButton?.addEventListener('click', closeConsentModal);
+	consentModal?.addEventListener('click', (event) => {
+		if (event.target === consentModal) closeConsentModal();
+	});
+	document.addEventListener('keydown', (event) => {
+		if (event.key === 'Escape') closeConsentModal();
+	});
+
+	const handleConsentClick = async (consent: boolean) => {
+		try {
+			await setExperimentConsentChoice(consent);
+			sendConsent(consent);
+			await renderPopupView();
+		} catch (e) {
+			console.warn('Failed to save consent choice', e);
+		}
+	};
+
+	consentYesButton?.addEventListener('click', () => {
+		void handleConsentClick(true);
+	});
+	consentNoButton?.addEventListener('click', () => {
+		void handleConsentClick(false);
+	});
+}
+
+async function renderConsentGate(sites: string[], consentChoice: ConsentChoice) {
+	renderConsentGateSites(sites);
+	await renderConsentGateTimeline();
+
+	const consentYesButton = document.getElementById('gate-consent-yes-btn') as HTMLButtonElement | null;
+	const consentNoButton = document.getElementById('gate-consent-no-btn') as HTMLButtonElement | null;
+	consentYesButton?.classList.toggle('consent-selected', consentChoice === true);
+	consentNoButton?.classList.toggle('consent-selected', consentChoice === false);
+
+	const hasMinimumSites = sites.length >= MIN_TRIGGER_SITES_REQUIRED;
+	if (!hasMinimumSites) {
+		const remaining = MIN_TRIGGER_SITES_REQUIRED - sites.length;
+		setGateFeedback(
+			'gate-trigger-feedback',
+			`Add ${remaining} more trigger ${remaining === 1 ? 'site' : 'sites'} to continue.`,
+			true,
+		);
+	} else {
+		setGateFeedback(
+			'gate-trigger-feedback',
+			`At least ${MIN_TRIGGER_SITES_REQUIRED} trigger sites are set.`,
+			false,
+		);
+	}
+
+	if (consentChoice === true) {
+		setGateFeedback('gate-consent-feedback', 'You selected: I Consent.', false);
+	} else {
+		setGateFeedback('gate-consent-feedback', 'You need to consent to be part of this study.', true);
+	}
+}
+
+function renderConsentGateSites(sites: string[]) {
+	const listEl = document.getElementById('gate-trigger-site-list');
+	if (!listEl) return;
+	listEl.innerHTML = '';
+	if (sites.length === 0) {
+		const empty = document.createElement('div');
+		empty.className = 'gate-setup-pill';
+		empty.textContent = 'No trigger sites yet';
+		listEl.appendChild(empty);
+		return;
+	}
+	for (const site of sites) {
+		const pill = document.createElement('div');
+		pill.className = 'gate-setup-pill';
+		pill.textContent = site.replace(/^https?:\/\//i, '');
+		listEl.appendChild(pill);
+	}
+}
+
+async function renderConsentGateTimeline() {
+	const state = await getExperimentState();
+	const startAt = typeof state?.startAt === 'number' ? state.startAt : Date.now();
+	const overlayAt = state?.experimentStartAt ?? startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
+	const completeAt = startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+
+	setText('gate-week1-range', `${formatDate(startAt)} - ${formatDate(overlayAt - DAY_MS)} (logging only)`);
+	setText('gate-week2-range', `${formatDate(overlayAt)} - ${formatDate(completeAt - DAY_MS)} (overlay enabled)`);
+	setText('gate-note', `Overlay turns on automatically on ${formatDate(overlayAt)}.`);
+}
+
+function setGateFeedback(id: string, text: string, isError: boolean) {
+	const el = document.getElementById(id);
+	if (!el) return;
+	el.textContent = text;
+	el.classList.toggle('error', isError);
+	el.classList.toggle('ok', !isError && !!text);
+}
+
+function sendConsent(consent: boolean) {
+	try {
+		chromeApi.runtime?.sendMessage({ type: 'experiment-consent', consent });
+	} catch (e) {}
+}
+
+function setText(id: string, text: string) {
+	const el = document.getElementById(id);
+	if (el) {
+		el.textContent = text;
+	}
+}
 
 // Bind UI events for adding items to each list.
 function setupLists() {
@@ -178,8 +413,7 @@ async function renderPopupToggle() {
 	]);
 	const delayChosen = currentDelay !== null && Number.isFinite(currentDelay);
 	const experimentManaged = !!experiment?.startAt;
-	const experimentPhase =
-		experiment && experiment.startAt ? getExperimentPhase(experiment, Date.now()) : null;
+	const experimentPhase = experiment && experiment.startAt ? getExperimentPhase(experiment, Date.now()) : null;
 	const input = document.getElementById('popup-enabled') as HTMLInputElement | null;
 	if (input) {
 		input.checked = enabled;
@@ -322,7 +556,21 @@ async function renderDelayTimer() {
 
 // Normalize trigger site input for consistent matching.
 function normalizeTriggerSite(value: string): string {
-	return value.trim().replace(/\/+$/, '');
+	const trimmed = (value || '').trim();
+	if (!trimmed) return '';
+
+	const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+	try {
+		const parsed = new URL(withProtocol);
+		return (parsed.hostname || '').toLowerCase().replace(/^www\./i, '');
+	} catch (e) {
+		return trimmed
+			.toLowerCase()
+			.replace(/^https?:\/\//i, '')
+			.replace(/^www\./i, '')
+			.replace(/\/+$/, '')
+			.split('/')[0];
+	}
 }
 
 // Remove duplicates while preserving order.
@@ -337,6 +585,14 @@ function dedupe(values: string[]): string[] {
 	return output;
 }
 
+function normalizeListValues(values: any): string[] {
+	return dedupe(
+		normalizeStoredList(values)
+			.map((entry) => normalizeTriggerSite(entry))
+			.filter(Boolean),
+	);
+}
+
 // Load a list from chrome storage (with legacy fallback).
 function getList(key: ListKey): Promise<string[]> {
 	return new Promise((resolve) => {
@@ -346,7 +602,7 @@ function getList(key: ListKey): Promise<string[]> {
 				if ((!raw || !Array.isArray(raw)) && key === 'triggerSites') {
 					raw = res ? res.savedSites : [];
 				}
-				resolve(dedupe(normalizeStoredList(raw)));
+				resolve(normalizeListValues(raw));
 			});
 		} catch (e) {
 			resolve([]);
@@ -358,7 +614,8 @@ function getList(key: ListKey): Promise<string[]> {
 function setList(key: ListKey, list: string[]): Promise<void> {
 	return new Promise((resolve, reject) => {
 		try {
-			chromeApi.storage.local.set({ [key]: list }, () => {
+			const normalized = normalizeListValues(list);
+			chromeApi.storage.local.set({ [key]: normalized }, () => {
 				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
 				resolve();
 			});
@@ -366,6 +623,13 @@ function setList(key: ListKey, list: string[]): Promise<void> {
 			reject(e);
 		}
 	});
+}
+
+async function migrateTriggerSitesToCanonicalValues() {
+	try {
+		const current = await getList('triggerSites');
+		await setList('triggerSites', current);
+	} catch (e) {}
 }
 
 // Load the currently selected popup delay.
@@ -418,10 +682,66 @@ function getExperimentState(): Promise<ExperimentState | null> {
 				resolve({
 					startAt,
 					phase: raw.phase,
+					experimentStartAt: typeof raw.experimentStartAt === 'number' ? raw.experimentStartAt : undefined,
 				});
 			});
 		} catch (e) {
 			resolve(null);
+		}
+	});
+}
+
+function getExperimentConsentChoice(): Promise<ConsentChoice> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.get([EXPERIMENT_CONSENT_KEY], (res: any) => {
+				const raw = res?.[EXPERIMENT_CONSENT_KEY];
+				if (raw === true || raw === false) {
+					resolve(raw);
+					return;
+				}
+				resolve(null);
+			});
+		} catch (e) {
+			resolve(null);
+		}
+	});
+}
+
+function setExperimentConsentChoice(consent: boolean): Promise<void> {
+	return new Promise((resolve, reject) => {
+		try {
+			chromeApi.storage.local.set({ [EXPERIMENT_CONSENT_KEY]: consent }, () => {
+				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
+				resolve();
+			});
+		} catch (e) {
+			reject(e);
+		}
+	});
+}
+
+function getExperimentOnboardingComplete(): Promise<boolean> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.get([EXPERIMENT_ONBOARDING_COMPLETE_KEY], (res: any) => {
+				resolve(res?.[EXPERIMENT_ONBOARDING_COMPLETE_KEY] === true);
+			});
+		} catch (e) {
+			resolve(false);
+		}
+	});
+}
+
+function setExperimentOnboardingComplete(complete: boolean): Promise<void> {
+	return new Promise((resolve, reject) => {
+		try {
+			chromeApi.storage.local.set({ [EXPERIMENT_ONBOARDING_COMPLETE_KEY]: complete }, () => {
+				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
+				resolve();
+			});
+		} catch (e) {
+			reject(e);
 		}
 	});
 }
@@ -466,11 +786,17 @@ function setupStorageListener() {
 	try {
 		chromeApi.storage.onChanged.addListener((changes: any, area: string) => {
 			if (area !== 'local' && area !== 'session') return;
-			if (changes.popupDelayMs || changes.popupEnabled || changes.delayState || changes.experimentState) {
-				renderDelayButtons();
-				renderPopupToggle();
-				renderDelayTimer();
-				renderExperimentStatus();
+			if (
+				changes.popupDelayMs ||
+				changes.popupEnabled ||
+				changes.delayState ||
+				changes.experimentState ||
+				changes.triggerSites ||
+				changes.savedSites ||
+				changes[EXPERIMENT_CONSENT_KEY] ||
+				changes[EXPERIMENT_ONBOARDING_COMPLETE_KEY]
+			) {
+				void renderPopupView();
 			}
 		});
 	} catch (e) {}
@@ -539,9 +865,12 @@ async function renderList(config: ListConfig) {
 	try {
 		const listEl = document.getElementById(config.listId);
 		if (!listEl) return;
-		listEl.innerHTML = '';
+		const nextVersion = (listRenderVersionById.get(config.listId) ?? 0) + 1;
+		listRenderVersionById.set(config.listId, nextVersion);
 
 		const items = await getList(config.key);
+		if (listRenderVersionById.get(config.listId) !== nextVersion) return;
+		listEl.innerHTML = '';
 		if (!items || items.length === 0) {
 			const empty = document.createElement('div');
 			empty.style.color = '#666';
