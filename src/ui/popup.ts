@@ -5,6 +5,7 @@
  */
 
 import { normalizeStoredList } from './utils/list-utils';
+import { createTriggerAutocomplete, TriggerAutocompleteHandle } from './utils/trigger-autocomplete';
 
 // Use chrome from window to avoid duplicate ambient declarations
 const chromeApi: any = (window as any).chrome;
@@ -50,13 +51,46 @@ const EXPERIMENT_STATE_KEY = 'experimentState';
 const EXPERIMENT_CONSENT_KEY = 'experimentConsentGiven';
 const EXPERIMENT_ONBOARDING_COMPLETE_KEY = 'experimentOnboardingComplete';
 const MIN_TRIGGER_SITES_REQUIRED = 2;
+const AUTOCOMPLETE_MAX_RESULTS = 6;
+const COMMON_TRIGGER_SITE_SUGGESTIONS = [
+	'youtube.com',
+	'reddit.com',
+	'facebook.com',
+	'instagram.com',
+	'linkedin.com',
+	'netflix.com',
+	'x.com',
+	'tiktok.com',
+	'twitch.tv',
+	'tiktok.com',
+	'kick.com',
+	'dr.dk'
+	'pinterest.com',
+	'ekstrabladet.dk',
+	'tv2.dk',
+	'seoghoer.dk',
+	'bt.dk',
+	'viaplay.dk',
+	'disneyplus.com',
+	'play.hbo.com',
+	'hbo.com',
+	'hbo-max.com',
+	'mrgreen.com',
+	'unibet.com',
+	'bet365.com',
+	'danskespil.dk',
+];
 
 let mainPopupInitialized = false;
 let consentGateInitialized = false;
+let triggerAutocompleteInitialized = false;
 const listRenderVersionById = new Map<string, number>();
+let triggerSiteAutocompleteSource: string[] = [];
+const triggerAutocompleteHandles: TriggerAutocompleteHandle[] = [];
 
 window.addEventListener('DOMContentLoaded', () => {
 	setupStorageListener();
+	setupTriggerSiteAutocomplete();
 	setupConsentGate();
 	void bootstrapPopupView();
 });
@@ -72,6 +106,7 @@ async function renderPopupView() {
 		getExperimentConsentChoice(),
 		getExperimentOnboardingComplete(),
 	]);
+	updateTriggerAutocompleteSource(sites);
 	if (onboardingComplete) {
 		setPopupViewVisibility(true);
 		if (!mainPopupInitialized) {
@@ -295,6 +330,53 @@ function setText(id: string, text: string) {
 	}
 }
 
+function setupTriggerSiteAutocomplete() {
+	if (triggerAutocompleteInitialized) return;
+	triggerAutocompleteInitialized = true;
+	const inputIds = ['trigger-url', 'gate-trigger-site-input'];
+	for (const inputId of inputIds) {
+		const input = document.getElementById(inputId) as HTMLInputElement | null;
+		if (!input) continue;
+		const handle = createTriggerAutocomplete({
+			input,
+			getSuggestions: getTriggerAutocompleteSuggestions,
+		});
+		triggerAutocompleteHandles.push(handle);
+	}
+}
+
+function updateTriggerAutocompleteSource(sites: string[]) {
+	triggerSiteAutocompleteSource = dedupe(sites.map((site) => normalizeTriggerSite(site)).filter(Boolean));
+	for (const handle of triggerAutocompleteHandles) {
+		handle.refresh();
+	}
+}
+
+function getTriggerAutocompleteSuggestions(inputValue: string): string[] {
+	const query = normalizeTriggerSite(inputValue).toLowerCase();
+	const pool = dedupe(
+		[...triggerSiteAutocompleteSource, ...COMMON_TRIGGER_SITE_SUGGESTIONS]
+			.map((site) => normalizeTriggerSite(site))
+			.filter(Boolean),
+	);
+	if (!query) {
+		return pool.slice(0, AUTOCOMPLETE_MAX_RESULTS);
+	}
+	const prefix: string[] = [];
+	const contains: string[] = [];
+	for (const site of pool) {
+		if (site === query) continue;
+		if (site.startsWith(query)) {
+			prefix.push(site);
+			continue;
+		}
+		if (site.includes(query)) {
+			contains.push(site);
+		}
+	}
+	return [...prefix, ...contains].slice(0, AUTOCOMPLETE_MAX_RESULTS);
+}
+
 // Bind UI events for adding items to each list.
 function setupLists() {
 	LISTS.forEach((config) => {
@@ -312,6 +394,9 @@ function setupLists() {
 				if (!list.includes(normalized)) {
 					list.push(normalized);
 					await setList(config.key, list);
+					if (config.key === 'triggerSites') {
+						updateTriggerAutocompleteSource(list);
+					}
 				}
 				input.value = '';
 				renderList(config);
@@ -908,6 +993,9 @@ async function renderList(config: ListConfig) {
 					const existing = await getList(config.key);
 					const filtered = existing.filter((item) => item !== value);
 					await setList(config.key, filtered);
+					if (config.key === 'triggerSites') {
+						updateTriggerAutocompleteSource(filtered);
+					}
 					renderList(config);
 				} catch (e) {
 					console.warn('Failed to remove entry', e);
