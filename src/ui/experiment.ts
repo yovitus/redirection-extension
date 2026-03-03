@@ -27,6 +27,7 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 async function initExperimentPopup() {
+
 	const mode = getMode();
 	const state = await getExperimentState();
 	const isWelcomeMode = mode === 'welcome';

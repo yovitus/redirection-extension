@@ -15,6 +15,7 @@ export class DbLogger {
 	private userUrl?: string;
 	private storage?: DbLoggerConfig['storage'];
 	private userIdKey: string;
+	private experimentPhaseByUserId = new Map<string, 'logging' | 'overlay' | 'completed'>();
 
 	constructor(config: DbLoggerConfig) {
 		this.logUrl = config.logUrl;
@@ -29,11 +30,13 @@ export class DbLogger {
 		if (!domain || !Number.isFinite(durationMinutes)) return;
 
 		const userId = await this.getUserId();
-		console.log("Logging visit:", { userId, domain, durationMinutes });
+		const reason = await this.resolveVisitReason(userId);
+		console.log("Logging visit:", { userId, domain, durationMinutes, reason });
 		await this.postJson(this.logUrl, {
 			user_id: userId,
 			domain,
 			duration_minutes: durationMinutes,
+			reason,
 		}, 'Supabase visit insert');
 	}
 
@@ -52,6 +55,9 @@ export class DbLogger {
 		}
 		if (typeof experimentPhase === 'string') {
 			payload.experiment_phase = experimentPhase;
+			if (experimentPhase === 'logging' || experimentPhase === 'overlay' || experimentPhase === 'completed') {
+				this.experimentPhaseByUserId.set(userId, experimentPhase);
+			}
 		}
 		await this.postJson(this.userUrl, payload, 'Supabase user insert');
 	}
@@ -83,6 +89,7 @@ export class DbLogger {
 	async logUserExperimentPhase(experimentPhase: 'logging' | 'overlay' | 'completed') {
 		if (!this.userUrl || !this.anonKey) return;
 		const userId = await this.getUserId();
+		this.experimentPhaseByUserId.set(userId, experimentPhase);
 		const payload: Record<string, any> = {
 			user_id: userId,
 			experiment_phase: experimentPhase,
@@ -139,7 +146,45 @@ async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
 		return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 	}
 
-		private getRpcUrl(fnName: string): string | null {
+	private async resolveVisitReason(userId: string): Promise<'logging' | 'active'> {
+		const phase = await this.getUserExperimentPhase(userId);
+		if (phase === 'overlay' || phase === 'completed') return 'active';
+		return 'logging';
+	}
+
+	private async getUserExperimentPhase(
+		userId: string,
+	): Promise<'logging' | 'overlay' | 'completed' | null> {
+		const cached = this.experimentPhaseByUserId.get(userId) ?? null;
+		if (!this.userUrl || !this.anonKey) return cached;
+		try {
+			const phaseUrl = `${this.userUrl}?select=experiment_phase&user_id=eq.${encodeURIComponent(userId)}&limit=1`;
+			const res = await fetch(phaseUrl, {
+				method: 'GET',
+				headers: {
+					apikey: this.anonKey,
+					Authorization: `Bearer ${this.anonKey}`,
+				},
+			});
+			const text = await res.text();
+			if (!res.ok) {
+				throw new Error(text || `Request failed (${res.status})`);
+			}
+			const parsed = this.safeParseJson(text);
+			const row = Array.isArray(parsed) && parsed.length > 0 ? parsed[0] : null;
+			const phase = row?.experiment_phase;
+			if (phase === 'logging' || phase === 'overlay' || phase === 'completed') {
+				this.experimentPhaseByUserId.set(userId, phase);
+				return phase;
+			}
+			return cached;
+		} catch (err) {
+			console.error('Supabase user experiment phase lookup failed:', err);
+			return cached;
+		}
+	}
+
+	private getRpcUrl(fnName: string): string | null {
 		const base = this.userUrl || this.logUrl;
 		if (!base) return null;
 		const marker = '/rest/v1/';
