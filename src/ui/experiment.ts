@@ -1,14 +1,14 @@
 /**
  * experiment.ts
  *
- * First-run / overlay-start / completion popup for the 2-week experiment.
+ * First-run / overlay-start / completion popup for the experiment.
  */
 
 const chromeApi: any = (window as any).chrome;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const EXPERIMENT_OVERLAY_DAYS = 7;
-const EXPERIMENT_TOTAL_DAYS = 14;
+const EXPERIMENT_OVERLAY_DAYS = 3;
+const EXPERIMENT_TOTAL_DAYS = 6;
 const EXPERIMENT_STATE_KEY = 'experimentState';
 const TRIGGER_SITES_KEY = 'triggerSites';
 const LEGACY_TRIGGER_SITES_KEY = 'savedSites';
@@ -49,20 +49,22 @@ async function initExperimentPopup() {
 		setText('experiment-title', 'Thanks for participating');
 		setText(
 			'experiment-subtitle',
-			'Your 14-day experiment is complete. The procrastination overlay stays enabled and logging continues.',
+			'Your 6-day experiment is complete. The procrastination overlay stays enabled and logging continues.',
 		);
 		setText('experiment-note', `Experiment ran from ${formatDate(startAt)} to ${formatDate(completeAt)}.`);
 		setText('primary-btn', 'Close');
 	} else if (mode === 'overlay') {
-		setText('experiment-badge', 'Week 2');
+		setText('experiment-badge', 'Phase 2');
 		setText('experiment-title', 'Experiment phase started');
 		setText(
 			'experiment-subtitle',
-			'Week 2 has begun. For the next 7 days, the procrastination overlay is enabled while logging continues.',
+			'Phase 2 has begun. For the next 3 days, the procrastination overlay is enabled while logging continues.',
 		);
-		setText('experiment-note', `Week 2 runs from ${formatDate(overlayAt)} to ${formatDate(completeAt - DAY_MS)}.`);
+		setText('experiment-note', `Phase 2 runs from ${formatDate(overlayAt)} to ${formatDate(completeAt - DAY_MS)}.`);
 		setText('primary-btn', 'Close');
-	} 
+	} else {
+		setText('experiment-note', `Experiment starts on ${formatDate(startAt)}.`);
+	}
 
 	const button = document.getElementById('primary-btn') as HTMLButtonElement | null;
 	if (button) {

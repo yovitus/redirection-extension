@@ -45,8 +45,8 @@ const LISTS: ListConfig[] = [
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const EXPERIMENT_OVERLAY_DAYS = 7;
-const EXPERIMENT_TOTAL_DAYS = 14;
+const EXPERIMENT_OVERLAY_DAYS = 3;
+const EXPERIMENT_TOTAL_DAYS = 6;
 const EXPERIMENT_STATE_KEY = 'experimentState';
 const EXPERIMENT_CONSENT_KEY = 'experimentConsentGiven';
 const EXPERIMENT_ONBOARDING_COMPLETE_KEY = 'experimentOnboardingComplete';
@@ -62,9 +62,8 @@ const COMMON_TRIGGER_SITE_SUGGESTIONS = [
 	'x.com',
 	'tiktok.com',
 	'twitch.tv',
-	'tiktok.com',
 	'kick.com',
-	'dr.dk'
+	'dr.dk',
 	'pinterest.com',
 	'ekstrabladet.dk',
 	'tv2.dk',
@@ -306,7 +305,7 @@ async function renderConsentGateTimeline() {
 
 	setText('gate-week1-range', `${formatDate(startAt)} - ${formatDate(overlayAt - DAY_MS)} (logging only)`);
 	setText('gate-week2-range', `${formatDate(overlayAt)} - ${formatDate(completeAt - DAY_MS)} (overlay enabled)`);
-	setText('gate-note', `Overlay turns on automatically on ${formatDate(overlayAt)}.`);
+	setText('gate-note', `Experiment starts on ${formatDate(startAt)}. Overlay turns on automatically on ${formatDate(overlayAt)}.`);
 }
 
 function setGateFeedback(id: string, text: string, isError: boolean) {
@@ -526,11 +525,11 @@ function updatePopupToggleCopy(experimentManaged: boolean, phase: ExperimentPhas
 	}
 
 	if (phase === 'logging') {
-		subtitleEl.textContent = 'Experiment week 1: logging only (overlay off).';
+		subtitleEl.textContent = 'Experiment phase 1: logging only (overlay off).';
 		return;
 	}
 	if (phase === 'overlay') {
-		subtitleEl.textContent = 'Experiment week 2: overlay enabled automatically.';
+		subtitleEl.textContent = 'Experiment phase 2: overlay enabled automatically.';
 		return;
 	}
 	if (phase === 'completed') {
@@ -553,6 +552,7 @@ async function renderExperimentStatus() {
 	card.classList.remove('hidden');
 	const nowMs = Date.now();
 	const phase = getExperimentPhase(state, nowMs);
+	const hasStarted = nowMs >= state.startAt;
 	const dayIndex = Math.floor((nowMs - state.startAt) / DAY_MS) + 1;
 	const dayNumber = Math.min(EXPERIMENT_TOTAL_DAYS, Math.max(1, dayIndex));
 	const overlayAt = state.startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
@@ -563,13 +563,15 @@ async function renderExperimentStatus() {
 	const datesEl = document.getElementById('experiment-dates');
 
 	if (phaseEl) {
-		if (phase === 'logging') phaseEl.textContent = 'Week 1';
-		if (phase === 'overlay') phaseEl.textContent = 'Week 2';
+		if (phase === 'logging') phaseEl.textContent = 'Phase 1';
+		if (phase === 'overlay') phaseEl.textContent = 'Phase 2';
 		if (phase === 'completed') phaseEl.textContent = 'Complete';
 	}
 
 	if (summaryEl) {
-		if (phase === 'logging') {
+		if (!hasStarted) {
+			summaryEl.textContent = `Scheduled start: ${formatDate(state.startAt)}.`;
+		} else if (phase === 'logging') {
 			summaryEl.textContent = `Day ${dayNumber} of ${EXPERIMENT_TOTAL_DAYS}. Logging only.`;
 		} else if (phase === 'overlay') {
 			summaryEl.textContent = `Day ${dayNumber} of ${EXPERIMENT_TOTAL_DAYS}. Overlay enabled.`;
@@ -579,7 +581,9 @@ async function renderExperimentStatus() {
 	}
 
 	if (datesEl) {
-		if (phase === 'logging') {
+		if (!hasStarted) {
+			datesEl.textContent = `Phase 1: ${formatDate(state.startAt)} to ${formatDate(overlayAt - DAY_MS)}.`;
+		} else if (phase === 'logging') {
 			datesEl.textContent = `Overlay starts on ${formatDate(overlayAt)}.`;
 		} else if (phase === 'overlay') {
 			datesEl.textContent = `Experiment ends on ${formatDate(completeAt)}.`;
