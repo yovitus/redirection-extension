@@ -161,7 +161,7 @@ function handleOverlayReady(sender: any) {
 			if (existingExperimentId) {
 				experimentPopupWindowId = existingExperimentId;
 			}
-			showDimAllTabs();
+			updateDimState();
 		})
 		.catch(() => {});
 }
@@ -782,7 +782,7 @@ function isModalWindow(windowId: number | null | undefined): boolean {
 }
 
 function hasModalOpen(): boolean {
-	return !!popupWindowId || !!experimentPopupWindowId;
+	return !!popupWindowId;
 }
 
 function updateDimState() {
