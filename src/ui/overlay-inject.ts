@@ -8,7 +8,7 @@ const chromeApi: any = (window as any).chrome;
 const windowAny: any = window as any;
 
 const OVERLAY_ID = 'focular-dim-overlay';
-const GAME_URL = 'https://minigamegpt.com/en/games/sudoku/';
+const GAME_URL = 'https://www.minisudoku.games/';
 
 init();
 
@@ -18,7 +18,10 @@ function init() {
 	if (windowAny.__focularOverlayInjected) return;
 	windowAny.__focularOverlayInjected = true;
 	if (window.top !== window) return;
-	if (isGameWindow()) return;
+	if (isGameWindow()) {
+		cleanupGamePopupLayout();
+		return;
+	}
 
 	listenForMessages();
 	announceOverlayReady();
@@ -30,7 +33,7 @@ function listenForMessages() {
 		chromeApi.runtime.onMessage.addListener((message: any) => {
 			if (!message || typeof message.type !== 'string') return;
 			if (message.type === 'show-dim') {
-				showDimOverlay();
+				showDimOverlay(message.allowDismiss !== false);
 			}
 			if (message.type === 'hide-dim') {
 				hideDimOverlay();
@@ -50,15 +53,40 @@ function announceOverlayReady() {
 function isGameWindow(): boolean {
 	const href = window.location.href;
 	if (href.startsWith(GAME_URL)) return true;
-	return (
-		window.location.hostname === 'minigamegpt.com' &&
-		window.location.pathname.startsWith('/en/games/sudoku')
-	);
+	const host = (window.location.hostname || '').toLowerCase();
+	return host === 'www.minisudoku.games' || host === 'minisudoku.games';
+}
+
+// Keep only core gameplay sections visible in the game popup.
+function cleanupGamePopupLayout() {
+	const applyCleanup = () => {
+		const wrapper = document.getElementById('app-wrapper');
+		const main = wrapper?.querySelector('main');
+		if (!main) return false;
+
+		const directDivChildren = Array.from(main.children).filter((child) => child.tagName === 'DIV');
+		for (const node of directDivChildren) {
+			const div = node as HTMLDivElement;
+			const keep =
+				div.id === 'sudoku-board-container' ||
+				div.id === 'number-controls' ||
+				!!div.querySelector('#difficulty') ||
+				(!!div.querySelector('#new-game-btn') && !!div.querySelector('#hint-btn'));
+			div.style.display = keep ? '' : 'none';
+		}
+		return true;
+	};
+
+	const observer = new MutationObserver(() => {
+		applyCleanup();
+	});
+	observer.observe(document.documentElement, { childList: true, subtree: true });
+	applyCleanup();
 }
 
 // Render the dimmed overlay and click-to-close message.
-function showDimOverlay() {
-	if (document.getElementById(OVERLAY_ID)) return;
+function showDimOverlay(allowDismiss: boolean) {
+	hideDimOverlay();
 
 	const overlay = document.createElement('div');
 	overlay.id = OVERLAY_ID;
@@ -74,10 +102,12 @@ function showDimOverlay() {
 	overlay.style.padding = '32px';
 	overlay.style.boxSizing = 'border-box';
 	overlay.style.backdropFilter = 'blur(1.5px)';
-	overlay.style.cursor = 'pointer';
+	overlay.style.cursor = allowDismiss ? 'pointer' : 'default';
 
 	const message = document.createElement('div');
-	message.textContent = 'Click anywhere outside the popup, to close it';
+	message.textContent = allowDismiss
+		? 'Click anywhere outside the popup, to close it'
+		: 'Return to the experiment popup to continue';
 	message.style.position = 'absolute';
 	message.style.top = '20px';
 	message.style.left = '50%';
@@ -93,12 +123,14 @@ function showDimOverlay() {
 	message.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.35)';
 
 	overlay.appendChild(message);
-	overlay.addEventListener('click', () => {
-		try {
-			chromeApi.runtime.sendMessage({ type: 'dismiss-popup' });
-		} catch (e) {}
-		hideDimOverlay();
-	});
+	if (allowDismiss) {
+		overlay.addEventListener('click', () => {
+			try {
+				chromeApi.runtime.sendMessage({ type: 'dismiss-popup' });
+			} catch (e) {}
+			hideDimOverlay();
+		});
+	}
 
 	const mount = document.body || document.documentElement;
 	mount.appendChild(overlay);

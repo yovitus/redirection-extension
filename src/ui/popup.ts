@@ -189,7 +189,8 @@ async function renderPopupToggle() {
 
 	const settings = document.getElementById('popup-settings');
 	if (settings) {
-		settings.classList.toggle('settings-disabled', !enabled);
+		const shouldGraySettings = !enabled && !(experimentManaged && experimentPhase === 'logging');
+		settings.classList.toggle('settings-disabled', shouldGraySettings);
 	}
 }
 

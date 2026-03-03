@@ -119,7 +119,6 @@ function watchMessages() {
 			if (!message || typeof message.type !== 'string') return;
 			if (message.type === 'dismiss-popup') {
 				closePopup();
-				closeExperimentPopup();
 			}
 			if (message.type === 'overlay-ready') {
 				handleOverlayReady(sender);
@@ -129,6 +128,9 @@ function watchMessages() {
 			}
 			if (message.type === 'experiment-consent') {
 				handleExperimentConsent(message);
+			}
+			if (message.type === 'open-settings-after-experiment-close') {
+				void closeExperimentPopupAndOpenExtensionPopup();
 			}
 		});
 	} catch (e) {}
@@ -140,7 +142,7 @@ function handleOverlayReady(sender: any) {
 		const tabId = sender?.tab?.id;
 		if (tabId) {
 			try {
-				chromeApi.tabs.sendMessage(tabId, { type: 'show-dim' }, () => {
+				chromeApi.tabs.sendMessage(tabId, buildShowDimMessage(), () => {
 					const err = chromeApi.runtime.lastError;
 					if (err) return;
 				});
@@ -192,7 +194,7 @@ function watchTabs() {
 					(experimentPopupWindowId && tab.windowId === experimentPopupWindowId);
 				if (isModalTab) return;
 				if (hasModalOpen()) {
-					chromeApi.tabs.sendMessage(tabId, { type: 'show-dim' }, () => {
+					chromeApi.tabs.sendMessage(tabId, buildShowDimMessage(), () => {
 						const err = chromeApi.runtime.lastError;
 						if (err) return;
 					});
@@ -212,13 +214,13 @@ function watchTabs() {
 			try {
 				chromeApi.tabs.get(activeInfo.tabId, (tab: any) => {
 					if (chromeApi.runtime.lastError) return;
+					if (experimentPopupWindowId && tab?.windowId !== experimentPopupWindowId) {
+						focusExperimentPopup();
+						return;
+					}
 					let closed = false;
 					if (popupWindowId && tab?.windowId && tab.windowId !== popupWindowId) {
 						closePopup();
-						closed = true;
-					}
-					if (experimentPopupWindowId && tab?.windowId && tab.windowId !== experimentPopupWindowId) {
-						closeExperimentPopup();
 						closed = true;
 					}
 					if (closed) return;
@@ -254,11 +256,16 @@ function watchWindows() {
 	try {
 		chromeApi.windows.onFocusChanged.addListener((windowId: number) => {
 			windowFocused = windowId !== chromeApi.windows.WINDOW_ID_NONE;
+			if (
+				experimentPopupWindowId &&
+				windowId !== chromeApi.windows.WINDOW_ID_NONE &&
+				windowId !== experimentPopupWindowId
+			) {
+				focusExperimentPopup();
+				return;
+			}
 			if (popupWindowId && windowId !== popupWindowId) {
 				closePopup();
-			}
-			if (experimentPopupWindowId && windowId !== experimentPopupWindowId) {
-				closeExperimentPopup();
 			}
 			if (windowFocused) {
 				refreshActiveTab();
@@ -508,7 +515,7 @@ function ensureDimOnActiveTab() {
 	if (!currentActiveTabId) return;
 	if (popupWindowId && currentActiveTabWindowId === popupWindowId) return;
 	try {
-		chromeApi.tabs.sendMessage(currentActiveTabId, { type: 'show-dim' }, () => {
+		chromeApi.tabs.sendMessage(currentActiveTabId, buildShowDimMessage(), () => {
 			const err = chromeApi.runtime.lastError;
 			if (err) {
 				ensureOverlayInjected({ id: currentActiveTabId, url: currentActiveTabUrl });
@@ -663,6 +670,108 @@ function closeExperimentPopup() {
 	}
 }
 
+async function closeExperimentPopupAndOpenExtensionPopup() {
+	if (!experimentPopupWindowId) {
+		await openExtensionPopupWithFallback();
+		return;
+	}
+	const toClose = experimentPopupWindowId;
+	experimentPopupWindowId = null;
+	suppressNullActiveUpdate = true;
+
+	try {
+		chromeApi.windows.remove(toClose, async () => {
+			updateDimState();
+			refreshActiveTab();
+			await openExtensionPopupWithFallback();
+		});
+	} catch (e) {
+		updateDimState();
+		refreshActiveTab();
+		await openExtensionPopupWithFallback();
+	}
+}
+
+function focusExperimentPopup() {
+	if (!experimentPopupWindowId) return;
+	try {
+		chromeApi.windows.update(experimentPopupWindowId, { focused: true }, () => {
+			const err = chromeApi.runtime.lastError;
+			if (!err) return;
+			experimentPopupWindowId = null;
+			updateDimState();
+		});
+	} catch (e) {}
+}
+
+async function openExtensionPopupWithFallback() {
+	const opened = await tryOpenExtensionActionPopup();
+	if (opened) return;
+	await openSettingsInCurrentTab();
+}
+
+async function tryOpenExtensionActionPopup(): Promise<boolean> {
+	try {
+		if (typeof chromeApi?.action?.openPopup !== 'function') return false;
+		await chromeApi.action.openPopup();
+		return true;
+	} catch (e) {
+		return false;
+	}
+}
+
+async function openSettingsInCurrentTab() {
+	try {
+		if (!chromeApi?.runtime?.getURL) return;
+		const settingsUrl = chromeApi.runtime.getURL('popup.html');
+		const targetTabId = await findSettingsTargetTabId();
+		if (targetTabId) {
+			await updateTabUrl(targetTabId, settingsUrl);
+			return;
+		}
+		await createTab({ url: settingsUrl, active: true });
+	} catch (e) {}
+}
+
+function findSettingsTargetTabId(): Promise<number | null> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.tabs.query({ active: true }, (activeTabs: any[]) => {
+				if (!Array.isArray(activeTabs)) return resolve(null);
+				const activeNonModal = activeTabs.find((tab) => tab?.id && !isModalWindow(tab.windowId));
+				if (activeNonModal?.id) return resolve(activeNonModal.id);
+				chromeApi.tabs.query({}, (allTabs: any[]) => {
+					if (!Array.isArray(allTabs)) return resolve(null);
+					const nonModal = allTabs.find((tab) => tab?.id && !isModalWindow(tab.windowId));
+					resolve(nonModal?.id ?? null);
+				});
+			});
+		} catch (e) {
+			resolve(null);
+		}
+	});
+}
+
+function updateTabUrl(tabId: number, url: string): Promise<void> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.tabs.update(tabId, { url, active: true }, () => resolve());
+		} catch (e) {
+			resolve();
+		}
+	});
+}
+
+function createTab(createProperties: any): Promise<void> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.tabs.create(createProperties, () => resolve());
+		} catch (e) {
+			resolve();
+		}
+	});
+}
+
 // Broadcast a show-dim command to all tabs.
 function isModalWindow(windowId: number | null | undefined): boolean {
 	if (!windowId && windowId !== 0) return false;
@@ -685,12 +794,19 @@ function updateDimState() {
 }
 
 function showDimAllTabs() {
-	broadcastToTabs({ type: 'show-dim' });
+	broadcastToTabs(buildShowDimMessage());
 }
 
 // Broadcast a hide-dim command to all tabs.
 function hideDimAllTabs() {
 	broadcastToTabs({ type: 'hide-dim' });
+}
+
+function buildShowDimMessage() {
+	return {
+		type: 'show-dim',
+		allowDismiss: !!popupWindowId,
+	};
 }
 
 // Send a message to every open tab.
@@ -726,7 +842,7 @@ function ensureOverlayInjected(tab: any) {
 			() => {
 				if (chromeApi.runtime.lastError) return;
 				try {
-					chromeApi.tabs.sendMessage(tab.id, { type: 'show-dim' }, () => {
+					chromeApi.tabs.sendMessage(tab.id, buildShowDimMessage(), () => {
 						const err = chromeApi.runtime.lastError;
 						if (err) return;
 					});
