@@ -61,6 +61,24 @@ const COMMON_TRIGGER_SITE_SUGGESTIONS = [
 	'netflix.com',
 	'x.com',
 	'tiktok.com',
+	'twitch.tv',
+	'tiktok.com',
+	'kick.com',
+	'dr.dk'
+	'pinterest.com',
+	'ekstrabladet.dk',
+	'tv2.dk',
+	'seoghoer.dk',
+	'bt.dk',
+	'viaplay.dk',
+	'disneyplus.com',
+	'play.hbo.com',
+	'hbo.com',
+	'hbo-max.com',
+	'mrgreen.com',
+	'unibet.com',
+	'bet365.com',
+	'danskespil.dk',
 ];
 
 let mainPopupInitialized = false;
