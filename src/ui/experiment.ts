@@ -27,7 +27,6 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 async function initExperimentPopup() {
-	requestDimOverlay();
 	const mode = getMode();
 	const state = await getExperimentState();
 	const isWelcomeMode = mode === 'welcome';
@@ -62,15 +61,7 @@ async function initExperimentPopup() {
 		);
 		setText('experiment-note', `Week 2 runs from ${formatDate(overlayAt)} to ${formatDate(completeAt - DAY_MS)}.`);
 		setText('primary-btn', 'Close');
-	} else {
-		setText('experiment-badge', 'Welcome');
-		setText('experiment-title', 'Welcome to Focular12');
-		setText(
-			'experiment-subtitle',
-			'This experiment lasts 14 days. Week 1 logs ONLY visits to sites that you have added to your Focal list. Week 2 enables the procrastination overlay.',
-		);
-		setText('experiment-note', `Overlay turns on automatically on ${formatDate(overlayAt)}.`);
-	}
+	} 
 
 	const button = document.getElementById('primary-btn') as HTMLButtonElement | null;
 	if (button) {
@@ -194,11 +185,6 @@ async function initExperimentPopup() {
 	}
 }
 
-function requestDimOverlay() {
-	try {
-		chromeApi.runtime?.sendMessage({ type: 'experiment-popup-ready' });
-	} catch (e) {}
-}
 
 function sendConsent(consent: boolean) {
 	try {
