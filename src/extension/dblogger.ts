@@ -86,6 +86,20 @@ export class DbLogger {
 		});
 	}
 
+	async logUserEmail(email: string) {
+		if (!this.userUrl || !this.anonKey) return;
+		const normalized = this.normalizeEmail(email);
+		if (!normalized) return;
+		const userId = await this.getUserId();
+		const payload: Record<string, any> = {
+			user_id: userId,
+			email: normalized,
+		};
+		await this.postJson(this.userUrl, payload, 'Supabase user email', {
+			Prefer: 'resolution=merge-duplicates',
+		});
+	}
+
 	async logUserExperimentPhase(experimentPhase: 'logging' | 'overlay' | 'completed') {
 		if (!this.userUrl || !this.anonKey) return;
 		const userId = await this.getUserId();
@@ -146,9 +160,16 @@ async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
 		return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 	}
 
-	private async resolveVisitReason(userId: string): Promise<'logging' | 'active'> {
+	private async resolveVisitReason(
+		userId: string,
+	): Promise<'logging' | 'active' | 'active-enabled' | 'active-disabled'> {
 		const phase = await this.getUserExperimentPhase(userId);
-		if (phase === 'overlay' || phase === 'completed') return 'active';
+		if (phase === 'overlay' || phase === 'completed') {
+			const enabled = await this.getPopupEnabled();
+			if (enabled === true) return 'active-enabled';
+			if (enabled === false) return 'active-disabled';
+			return 'active';
+		}
 		return 'logging';
 	}
 
@@ -199,6 +220,22 @@ async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
 		} catch (e) {
 			return null;
 		}
+	}
+
+	private async getPopupEnabled(): Promise<boolean | null> {
+		if (!this.storage) return null;
+		const stored = await new Promise<any>((resolve) =>
+			this.storage!.get(['popupEnabled'], (res) => resolve(res?.popupEnabled))
+		);
+		if (stored === true || stored === false) return stored;
+		return null;
+	}
+
+	private normalizeEmail(value: string): string | null {
+		const trimmed = String(value || '').trim().toLowerCase();
+		if (!trimmed) return null;
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return null;
+		return trimmed;
 	}
 
 	private async postJson(

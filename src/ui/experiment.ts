@@ -12,6 +12,7 @@ const EXPERIMENT_TOTAL_DAYS = 6;
 const EXPERIMENT_STATE_KEY = 'experimentState';
 const TRIGGER_SITES_KEY = 'triggerSites';
 const LEGACY_TRIGGER_SITES_KEY = 'savedSites';
+const EXPERIMENT_EMAIL_KEY = 'experimentUserEmail';
 const MIN_TRIGGER_SITES_REQUIRED = 2;
 
 type ExperimentState = {
@@ -100,6 +101,8 @@ async function initExperimentPopup() {
 	const triggerSetup = document.getElementById('trigger-setup');
 	const triggerInput = document.getElementById('trigger-site-input') as HTMLInputElement | null;
 	const addTriggerButton = document.getElementById('add-trigger-site-btn') as HTMLButtonElement | null;
+	const emailInput = document.getElementById('email-input') as HTMLInputElement | null;
+	const saveEmailButton = document.getElementById('save-email-btn') as HTMLButtonElement | null;
 	if (!isWelcomeMode) {
 		triggerSetup?.remove();
 	} else {
@@ -144,6 +147,42 @@ async function initExperimentPopup() {
 		});
 		await renderTriggerSites();
 		await refreshCloseButtonState(button, hasConsented);
+
+		const saveEmail = async () => {
+			const raw = (emailInput?.value || '').trim();
+			if (!raw) {
+				setFeedback('email-feedback', 'Email is optional. Leave blank to skip.', false);
+				return;
+			}
+			const normalized = normalizeEmail(raw);
+			if (!isValidEmail(normalized)) {
+				setFeedback('email-feedback', 'Enter a valid email address.', true);
+				return;
+			}
+			try {
+				await setExperimentEmail(normalized);
+				sendEmail(normalized);
+				if (emailInput) emailInput.value = normalized;
+				setFeedback('email-feedback', 'Email saved.', false);
+			} catch (e) {
+				setFeedback('email-feedback', 'Could not save email. Try again.', true);
+			}
+		};
+
+		saveEmailButton?.addEventListener('click', () => {
+			void saveEmail();
+		});
+		emailInput?.addEventListener('keydown', (event) => {
+			if (event.key !== 'Enter') return;
+			event.preventDefault();
+			void saveEmail();
+		});
+
+		const storedEmail = await getExperimentEmail();
+		if (emailInput && storedEmail) {
+			emailInput.value = storedEmail;
+			setFeedback('email-feedback', 'Email saved.', false);
+		}
 	}
 
 	const consentRow = document.getElementById('consent-row');
@@ -195,6 +234,12 @@ function sendConsent(consent: boolean) {
 	} catch (e) {}
 }
 
+function sendEmail(email: string) {
+	try {
+		chromeApi.runtime?.sendMessage({ type: 'experiment-email', email });
+	} catch (e) {}
+}
+
 function requestOpenSettingsAfterWelcomeClose() {
 	try {
 		chromeApi.runtime?.sendMessage({ type: 'open-settings-after-experiment-close' });
@@ -207,7 +252,7 @@ function getMode(): 'welcome' | 'overlay' | 'complete' {
 		if (params.get('mode') === 'overlay') return 'overlay';
 		return params.get('mode') === 'complete' ? 'complete' : 'welcome';
 	} catch (e) {
-		return 'welcome';
+		return "overlay";
 	}
 }
 
@@ -243,6 +288,29 @@ function setTriggerSites(sites: string[]): Promise<void> {
 		try {
 			const normalized = dedupe(normalizeStoredList(sites));
 			chromeApi.storage?.local?.set({ [TRIGGER_SITES_KEY]: normalized }, () => resolve());
+		} catch (e) {
+			resolve();
+		}
+	});
+}
+
+function getExperimentEmail(): Promise<string | null> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage?.local?.get([EXPERIMENT_EMAIL_KEY], (res: any) => {
+				const raw = res?.[EXPERIMENT_EMAIL_KEY];
+				resolve(typeof raw === 'string' ? raw : null);
+			});
+		} catch (e) {
+			resolve(null);
+		}
+	});
+}
+
+function setExperimentEmail(email: string): Promise<void> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage?.local?.set({ [EXPERIMENT_EMAIL_KEY]: email }, () => resolve());
 		} catch (e) {
 			resolve();
 		}

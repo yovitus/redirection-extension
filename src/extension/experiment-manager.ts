@@ -95,7 +95,7 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 			await options.dbLogger.logUserExperimentPhase(state.phase);
 		}
 
-		await applyExperimentPhase(state);
+		await applyExperimentPhase(state, phaseChanged);
 		scheduleExperimentAlarm(state, nowMs);
 
 		if (state.phase === 'overlay' && !state.overlayShown) {
@@ -135,7 +135,7 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		const initial: ExperimentState = {
 			startAt,
 			phase: 'logging',
-			experimentStartAt: startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS,
+			experimentStartAt: startAt + 60 * 1000, //startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS,
 			onboardingShown: false,
 			overlayShown: false,
 			completionShown: false,
@@ -217,9 +217,20 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		return 'logging';
 	}
 
-	async function applyExperimentPhase(state: ExperimentState) {
-		const shouldEnable = state.phase !== 'logging';
-		await options.setPopupEnabled(shouldEnable);
+	async function applyExperimentPhase(state: ExperimentState, phaseChanged: boolean) {
+		if (state.phase === 'logging') {
+			await options.setPopupEnabled(false);
+			return;
+		}
+		if (state.phase === 'overlay') {
+			if (phaseChanged) {
+				await options.setPopupEnabled(true);
+			}
+			return;
+		}
+		if (state.phase === 'completed') {
+			await options.setPopupEnabled(true);
+		}
 	}
 
 	function scheduleExperimentAlarm(state: ExperimentState, nowMs: number) {

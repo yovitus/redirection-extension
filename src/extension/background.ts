@@ -135,6 +135,9 @@ function watchMessages() {
 			if (message.type === 'experiment-consent') {
 				handleExperimentConsent(message);
 			}
+			if (message.type === 'experiment-email') {
+				handleExperimentEmail(message);
+			}
 			if (message.type === 'open-settings-after-experiment-close') {
 				void closeExperimentPopupAndOpenExtensionPopup();
 			}
@@ -188,6 +191,15 @@ async function handleExperimentConsent(message:any) {
 	try {
 		if (typeof message?.consent !== 'boolean') return;
 		await dbLogger.logUserConsent(message.consent);
+	} catch (e) {}
+}
+
+async function handleExperimentEmail(message: any) {
+	try {
+		if (typeof message?.email !== 'string') return;
+		const email = message.email.trim();
+		if (!email) return;
+		await dbLogger.logUserEmail(email);
 	} catch (e) {}
 }
 

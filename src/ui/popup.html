@@ -540,6 +540,14 @@
         </div>
         <div class="gate-setup-list" id="gate-trigger-site-list"></div>
         <div class="gate-feedback" id="gate-trigger-feedback"></div>
+
+        <div class="gate-setup-title">Optional: add your email</div>
+        <div class="gate-setup-help">If you want us to contact you about the study, add an email address.</div>
+        <div class="gate-setup-row">
+          <input class="gate-setup-input" id="gate-email-input" type="email" placeholder="you@example.com" autocomplete="email">
+          <button class="btn-secondary gate-setup-add-btn" id="gate-save-email-btn" type="button">Save</button>
+        </div>
+        <div class="gate-feedback" id="gate-email-feedback"></div>
       </div>
 
       <div class="gate-consent-row">
@@ -613,7 +621,8 @@
       <ul class="gate-modal-list">
         <li>We log only time spent on websites that you add as trigger sites.</li>
         <li>We do not log browsing activity for websites you did not add.</li>
-        <li>We do not collect page content, text you type, passwords, or form inputs.</li>
+        <li>We do not collect page content, passwords, or text you type on websites.</li>
+        <li>If you choose to provide an email address, we store it with your participant ID.</li>
         <li>You can edit your trigger sites at any time from the Focular extension popup.</li>
       </ul>
       <div class="gate-modal-actions">
