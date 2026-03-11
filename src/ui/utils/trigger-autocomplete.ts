@@ -15,6 +15,7 @@ type TriggerAutocompleteState = {
 	menu: HTMLDivElement;
 	options: string[];
 	activeIndex: number;
+	hasUserTyped: boolean;
 	getSuggestions: (query: string) => string[];
 	onSelected?: (value: string) => void;
 };
@@ -39,14 +40,16 @@ export function createTriggerAutocomplete(options: TriggerAutocompleteOptions): 
 		menu,
 		options: [],
 		activeIndex: -1,
+		hasUserTyped: false,
 		getSuggestions: options.getSuggestions,
 		onSelected: options.onSelected,
 	};
 
 	const onFocus = () => {
-		renderMenu(state);
+		state.hasUserTyped = false;
 	};
 	const onInput = () => {
+		state.hasUserTyped = true;
 		renderMenu(state);
 	};
 	const onKeyDown = (event: KeyboardEvent) => {
@@ -89,6 +92,7 @@ export function createTriggerAutocomplete(options: TriggerAutocompleteOptions): 
 		window.setTimeout(() => {
 			hideMenu(state);
 		}, 80);
+		state.hasUserTyped = false;
 	};
 	const onDocumentMouseDown = (event: MouseEvent) => {
 		const target = event.target as Node | null;
@@ -129,6 +133,11 @@ export function createTriggerAutocomplete(options: TriggerAutocompleteOptions): 
 }
 
 function renderMenu(state: TriggerAutocompleteState) {
+	const rawValue = state.input.value || '';
+	if (!state.hasUserTyped || !rawValue.trim()) {
+		hideMenu(state);
+		return;
+	}
 	state.options = state.getSuggestions(state.input.value);
 	state.activeIndex = -1;
 	if (state.options.length === 0) {

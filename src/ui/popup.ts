@@ -50,6 +50,7 @@ const EXPERIMENT_TOTAL_DAYS = 6;
 const EXPERIMENT_STATE_KEY = 'experimentState';
 const EXPERIMENT_CONSENT_KEY = 'experimentConsentGiven';
 const EXPERIMENT_ONBOARDING_COMPLETE_KEY = 'experimentOnboardingComplete';
+const EXPERIMENT_EMAIL_KEY = 'experimentUserEmail';
 const MIN_TRIGGER_SITES_REQUIRED = 2;
 const AUTOCOMPLETE_MAX_RESULTS = 6;
 const COMMON_TRIGGER_SITE_SUGGESTIONS = [
@@ -173,6 +174,8 @@ function setupConsentGate() {
 
 	const triggerInput = document.getElementById('gate-trigger-site-input') as HTMLInputElement | null;
 	const addTriggerButton = document.getElementById('gate-add-trigger-site-btn') as HTMLButtonElement | null;
+	const emailInput = document.getElementById('gate-email-input') as HTMLInputElement | null;
+	const saveEmailButton = document.getElementById('gate-save-email-btn') as HTMLButtonElement | null;
 	const consentYesButton = document.getElementById('gate-consent-yes-btn') as HTMLButtonElement | null;
 	const consentNoButton = document.getElementById('gate-consent-no-btn') as HTMLButtonElement | null;
 	const consentInfoButton = document.getElementById('gate-consent-info-btn') as HTMLButtonElement | null;
@@ -212,6 +215,37 @@ function setupConsentGate() {
 		void addGateTriggerSite();
 	});
 
+	const saveGateEmail = async () => {
+		const raw = (emailInput?.value || '').trim();
+		if (!raw) {
+			setGateFeedback('gate-email-feedback', 'Email is optional. Leave blank to skip.', false);
+			return;
+		}
+		const normalized = normalizeEmail(raw);
+		if (!isValidEmail(normalized)) {
+			setGateFeedback('gate-email-feedback', 'Enter a valid email address.', true);
+			return;
+		}
+		try {
+			await setExperimentEmail(normalized);
+			sendEmail(normalized);
+			if (emailInput) emailInput.value = normalized;
+			setGateFeedback('gate-email-feedback', 'Email saved.', false);
+		} catch (e) {
+			console.warn('Failed to save email', e);
+			setGateFeedback('gate-email-feedback', 'Could not save email. Try again.', true);
+		}
+	};
+
+	saveEmailButton?.addEventListener('click', () => {
+		void saveGateEmail();
+	});
+	emailInput?.addEventListener('keydown', (event) => {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		void saveGateEmail();
+	});
+
 	const openConsentModal = () => {
 		consentModal?.classList.remove('hidden');
 	};
@@ -249,6 +283,7 @@ function setupConsentGate() {
 async function renderConsentGate(sites: string[], consentChoice: ConsentChoice) {
 	renderConsentGateSites(sites);
 	await renderConsentGateTimeline();
+	await renderConsentGateEmail();
 
 	const consentYesButton = document.getElementById('gate-consent-yes-btn') as HTMLButtonElement | null;
 	const consentNoButton = document.getElementById('gate-consent-no-btn') as HTMLButtonElement | null;
@@ -308,6 +343,18 @@ async function renderConsentGateTimeline() {
 	setText('gate-note', `Experiment starts on ${formatDate(startAt)}. Overlay turns on automatically on ${formatDate(overlayAt)}.`);
 }
 
+async function renderConsentGateEmail() {
+	const input = document.getElementById('gate-email-input') as HTMLInputElement | null;
+	if (!input) return;
+	const stored = await getExperimentEmail();
+	if (!input.value && stored) {
+		input.value = stored;
+	}
+	if (stored) {
+		setGateFeedback('gate-email-feedback', 'Email saved.', false);
+	}
+}
+
 function setGateFeedback(id: string, text: string, isError: boolean) {
 	const el = document.getElementById(id);
 	if (!el) return;
@@ -319,6 +366,12 @@ function setGateFeedback(id: string, text: string, isError: boolean) {
 function sendConsent(consent: boolean) {
 	try {
 		chromeApi.runtime?.sendMessage({ type: 'experiment-consent', consent });
+	} catch (e) {}
+}
+
+function sendEmail(email: string) {
+	try {
+		chromeApi.runtime?.sendMessage({ type: 'experiment-email', email });
 	} catch (e) {}
 }
 
@@ -501,7 +554,8 @@ async function renderPopupToggle() {
 	const input = document.getElementById('popup-enabled') as HTMLInputElement | null;
 	if (input) {
 		input.checked = enabled;
-		input.disabled = experimentManaged || !delayChosen;
+		const experimentLocksToggle = experimentManaged && experimentPhase !== 'overlay';
+		input.disabled = experimentLocksToggle || !delayChosen;
 	}
 	updatePopupToggleCopy(experimentManaged, experimentPhase);
 
@@ -529,7 +583,7 @@ function updatePopupToggleCopy(experimentManaged: boolean, phase: ExperimentPhas
 		return;
 	}
 	if (phase === 'overlay') {
-		subtitleEl.textContent = 'Experiment phase 2: overlay enabled automatically.';
+		subtitleEl.textContent = 'Experiment phase 2: you can toggle the overlay on or off.';
 		return;
 	}
 	if (phase === 'completed') {
@@ -660,6 +714,15 @@ function normalizeTriggerSite(value: string): string {
 			.replace(/\/+$/, '')
 			.split('/')[0];
 	}
+}
+
+function normalizeEmail(value: string): string {
+	return (value || '').trim().toLowerCase();
+}
+
+function isValidEmail(value: string): boolean {
+	if (!value) return false;
+	return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 // Remove duplicates while preserving order.
@@ -810,6 +873,32 @@ function setExperimentConsentChoice(consent: boolean): Promise<void> {
 	});
 }
 
+function getExperimentEmail(): Promise<string | null> {
+	return new Promise((resolve) => {
+		try {
+			chromeApi.storage.local.get([EXPERIMENT_EMAIL_KEY], (res: any) => {
+				const raw = res?.[EXPERIMENT_EMAIL_KEY];
+				resolve(typeof raw === 'string' ? raw : null);
+			});
+		} catch (e) {
+			resolve(null);
+		}
+	});
+}
+
+function setExperimentEmail(email: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		try {
+			chromeApi.storage.local.set({ [EXPERIMENT_EMAIL_KEY]: email }, () => {
+				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
+				resolve();
+			});
+		} catch (e) {
+			reject(e);
+		}
+	});
+}
+
 function getExperimentOnboardingComplete(): Promise<boolean> {
 	return new Promise((resolve) => {
 		try {
@@ -883,6 +972,7 @@ function setupStorageListener() {
 				changes.triggerSites ||
 				changes.savedSites ||
 				changes[EXPERIMENT_CONSENT_KEY] ||
+				changes[EXPERIMENT_EMAIL_KEY] ||
 				changes[EXPERIMENT_ONBOARDING_COMPLETE_KEY]
 			) {
 				void renderPopupView();
