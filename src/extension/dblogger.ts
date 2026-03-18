@@ -2,6 +2,8 @@ export type DbLoggerConfig = {
 	logUrl: string;
 	anonKey: string;
 	userUrl?: string;
+	triggerLogUrl?: string;
+	consentKey?: string;
 	storage?: {
 		get: (keys: string[], cb: (res: any) => void) => void;
 		set: (values: Record<string, any>, cb: () => void) => void;
@@ -13,14 +15,20 @@ export class DbLogger {
 	private logUrl: string;
 	private anonKey: string;
 	private userUrl?: string;
+	private triggerLogUrl?: string;
+	private consentKey: string;
 	private storage?: DbLoggerConfig['storage'];
 	private userIdKey: string;
 	private experimentPhaseByUserId = new Map<string, 'logging' | 'overlay' | 'completed'>();
+	private cachedUserId: string | null = null;
+	private userIdPromise: Promise<string> | null = null;
 
 	constructor(config: DbLoggerConfig) {
 		this.logUrl = config.logUrl;
 		this.anonKey = config.anonKey;
 		this.userUrl = config.userUrl;
+		this.triggerLogUrl = config.triggerLogUrl;
+		this.consentKey = config.consentKey ?? 'experimentConsentGiven';
 		this.storage = config.storage;
 		this.userIdKey = config.userIdKey ?? 'userId';
 	}
@@ -28,10 +36,10 @@ export class DbLogger {
 	async logVisit(domain: string, durationMinutes: number) {
 		if (!this.logUrl || !this.anonKey) return;
 		if (!domain || !Number.isFinite(durationMinutes)) return;
+		if (!(await this.hasUserConsent())) return;
 
 		const userId = await this.getUserId();
 		const reason = await this.resolveVisitReason(userId);
-		console.log("Logging visit:", { userId, domain, durationMinutes, reason });
 		await this.postJson(this.logUrl, {
 			user_id: userId,
 			domain,
@@ -46,6 +54,7 @@ export class DbLogger {
 
 	async logUserCreated(experimentStartAt?: number, experimentPhase?: string) {
 		if (!this.userUrl || !this.anonKey) return;
+		if (!(await this.hasUserConsent())) return;
 		const userId = await this.getUserId();
 		const payload: Record<string, any> = {
 			user_id: userId,
@@ -59,11 +68,14 @@ export class DbLogger {
 				this.experimentPhaseByUserId.set(userId, experimentPhase);
 			}
 		}
-		await this.postJson(this.userUrl, payload, 'Supabase user insert');
+		await this.postJson(this.userUrl, payload, 'Supabase user insert', {
+			Prefer: 'resolution=merge-duplicates',
+		});
 	}
 
 	async logUserConsent(consentGiven: boolean) {
 		if (!this.userUrl || !this.anonKey) return;
+		if (consentGiven !== true) return;
 		const userId = await this.getUserId();
 		const payload: Record<string, any> = {
 			user_id: userId,
@@ -76,6 +88,7 @@ export class DbLogger {
 
 	async logUserDelayTimer(delayTimer: 'Instant' | '5' | '10') {
 		if (!this.userUrl || !this.anonKey) return;
+		if (!(await this.hasUserConsent())) return;
 		const userId = await this.getUserId();
 		const payload: Record<string, any> = {
 			user_id: userId,
@@ -88,6 +101,7 @@ export class DbLogger {
 
 	async logUserEmail(email: string) {
 		if (!this.userUrl || !this.anonKey) return;
+		if (!(await this.hasUserConsent())) return;
 		const normalized = this.normalizeEmail(email);
 		if (!normalized) return;
 		const userId = await this.getUserId();
@@ -102,6 +116,7 @@ export class DbLogger {
 
 	async logUserExperimentPhase(experimentPhase: 'logging' | 'overlay' | 'completed') {
 		if (!this.userUrl || !this.anonKey) return;
+		if (!(await this.hasUserConsent())) return;
 		const userId = await this.getUserId();
 		this.experimentPhaseByUserId.set(userId, experimentPhase);
 		const payload: Record<string, any> = {
@@ -113,7 +128,53 @@ export class DbLogger {
 		});
 	}
 
-async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
+	async logTriggerSiteChanges(added: string[], removed: string[], triggerSites: string[]) {
+		if (!this.triggerLogUrl || !this.anonKey) return;
+		if (!(await this.hasUserConsent())) return;
+		const userId = await this.getUserId();
+		const changedAt = new Date().toISOString();
+		const rows: Record<string, any>[] = [];
+		for (const site of added) {
+			if (!site) continue;
+			rows.push({
+				user_id: userId,
+				action: 'add',
+				site,
+				trigger_sites: triggerSites,
+				changed_at: changedAt,
+			});
+		}
+		for (const site of removed) {
+			if (!site) continue;
+			rows.push({
+				user_id: userId,
+				action: 'remove',
+				site,
+				trigger_sites: triggerSites,
+				changed_at: changedAt,
+			});
+		}
+		if (rows.length === 0) return;
+		await this.postJson(this.triggerLogUrl, rows, 'Supabase trigger site change');
+	}
+
+	async logTriggerSitesSnapshot(triggerSites: string[]) {
+		if (!this.triggerLogUrl || !this.anonKey) return;
+		if (!(await this.hasUserConsent())) return;
+		if (!Array.isArray(triggerSites) || triggerSites.length === 0) return;
+		const userId = await this.getUserId();
+		const changedAt = new Date().toISOString();
+		const payload: Record<string, any> = {
+			user_id: userId,
+			action: 'snapshot',
+			trigger_sites: triggerSites,
+			changed_at: changedAt,
+		};
+		await this.postJson(this.triggerLogUrl, payload, 'Supabase trigger site snapshot');
+	}
+
+	async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
+		if (!(await this.hasUserConsent())) return null;
 		const rpcUrl = this.getRpcUrl('assign_delay_timer');
 		if (!rpcUrl || !this.anonKey) return null;
 		const userId = await this.getUserId();
@@ -143,17 +204,36 @@ async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
 		}
 	}
 	private async getUserId(): Promise<string> {
-		if (!this.storage) return this.generateId();
+		if (this.cachedUserId) return this.cachedUserId;
 
-		const stored = await new Promise<any>((resolve) =>
-			this.storage!.get([this.userIdKey], (res) => resolve(res?.[this.userIdKey]))
-		);
+		if (!this.storage) {
+			this.cachedUserId = this.generateId();
+			return this.cachedUserId;
+		}
 
-		if (typeof stored === 'string') return stored;
+		if (!this.userIdPromise) {
+			this.userIdPromise = (async () => {
+				const stored = await new Promise<any>((resolve) =>
+					this.storage!.get([this.userIdKey], (res) => resolve(res?.[this.userIdKey]))
+				);
 
-		const next = this.generateId();
-		this.storage.set({ [this.userIdKey]: next }, () => {});
-		return next;
+				if (typeof stored === 'string' && stored) {
+					this.cachedUserId = stored;
+					return stored;
+				}
+
+				const next = this.generateId();
+				await new Promise<void>((resolve) => {
+					this.storage!.set({ [this.userIdKey]: next }, () => resolve());
+				});
+				this.cachedUserId = next;
+				return next;
+			})().finally(() => {
+				this.userIdPromise = null;
+			});
+		}
+
+		return this.userIdPromise;
 	}
 
 	private generateId() {
@@ -178,6 +258,7 @@ async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
 	): Promise<'logging' | 'overlay' | 'completed' | null> {
 		const cached = this.experimentPhaseByUserId.get(userId) ?? null;
 		if (!this.userUrl || !this.anonKey) return cached;
+		if (!(await this.hasUserConsent())) return cached;
 		try {
 			const phaseUrl = `${this.userUrl}?select=experiment_phase&user_id=eq.${encodeURIComponent(userId)}&limit=1`;
 			const res = await fetch(phaseUrl, {
@@ -203,6 +284,14 @@ async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
 			console.error('Supabase user experiment phase lookup failed:', err);
 			return cached;
 		}
+	}
+
+	private async hasUserConsent(): Promise<boolean> {
+		if (!this.storage) return false;
+		const stored = await new Promise<any>((resolve) =>
+			this.storage!.get([this.consentKey], (res) => resolve(res?.[this.consentKey]))
+		);
+		return stored === true;
 	}
 
 	private getRpcUrl(fnName: string): string | null {
@@ -240,7 +329,7 @@ async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
 
 	private async postJson(
 		url: string,
-		payload: Record<string, any>,
+		payload: Record<string, any> | Record<string, any>[],
 		label: string,
 		extraHeaders?: Record<string, string>,
 	) {
@@ -256,10 +345,6 @@ async assignDelayTimerRoundRobin(): Promise<'Instant' | '5' | '10' | null> {
 				body: JSON.stringify(payload),
 			});
 			const text = await res.text();
-			console.log(`${label} status:`, res.status);
-			if (text) {
-				console.log(`${label} response:`, text);
-			}
 			if (!res.ok) {
 				throw new Error(text || `Request failed (${res.status})`);
 			}

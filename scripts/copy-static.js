@@ -25,9 +25,6 @@ const buildTargets = [
   { entry: "src/ui/experiment.ts", outfile: "dist/experiment.js", platform: "browser" },
   { entry: "src/ui/overlay-inject.ts", outfile: "dist/overlay-inject.js", platform: "browser" },
   { entry: "src/extension/background.ts", outfile: "dist/background.js", platform: "browser" },
-  { entry: "src/extension/dblogger.ts", outfile: "dist/dblogger.js", platform: "browser" },
-  { entry: "src/extension/experiment-manager.ts", outfile: "dist/experiment-manager.js", platform: "browser" },
-
 ];
 
 async function runBuilds() {
