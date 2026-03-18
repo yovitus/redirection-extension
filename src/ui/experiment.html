@@ -84,67 +84,6 @@
       color: #666;
       line-height: 1.4;
     }
-    .setup {
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      background: #f8fafc;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .setup-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: #111827;
-    }
-    .setup-help {
-      font-size: 11px;
-      color: #475569;
-      line-height: 1.4;
-    }
-    .setup-row {
-      display: flex;
-      gap: 8px;
-    }
-    .setup-input {
-      flex: 1;
-      border: 1px solid #cbd5e1;
-      border-radius: 6px;
-      padding: 9px 10px;
-      font-size: 13px;
-      outline: none;
-      background: #fff;
-      color: #1f2937;
-    }
-    .setup-input:focus {
-      border-color: #4f7cff;
-      box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.18);
-    }
-    .setup-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-    .setup-pill {
-      border-radius: 999px;
-      background: #e2e8f0;
-      color: #1e293b;
-      font-size: 12px;
-      padding: 4px 10px;
-    }
-    .feedback {
-      font-size: 12px;
-      line-height: 1.4;
-      color: #4b5563;
-      min-height: 16px;
-    }
-    .feedback.error {
-      color: #b91c1c;
-    }
-    .feedback.ok {
-      color: #166534;
-    }
     .btn {
       margin-top: 6px;
       padding: 10px;
@@ -157,117 +96,18 @@
       cursor: pointer;
       transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
-    .consent-row {
-      display: flex;
-      gap: 10px;
-      margin-top: 6px;
-    }
-    .consent-row .btn {
-      margin-top: 0;
-      flex: 1;
-    }
-    .btn.consent-yes {
-      background: #1f9d45;
-    }
-    .btn.consent-no {
-      background: #d93a3a;
-    }
     .btn:hover {
       transform: translateY(-1px);
       box-shadow: 0 6px 14px rgba(79, 124, 255, 0.35);
-    }
-    .btn.consent-yes:hover {
-      box-shadow: 0 6px 14px rgba(31, 157, 69, 0.35);
-    }
-    .btn.consent-no:hover {
-      box-shadow: 0 6px 14px rgba(217, 58, 58, 0.35);
-    }
-    .btn.secondary {
-      background: #e7eaf4;
-      color: #29324a;
-    }
-    .btn.secondary:hover {
-      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.16);
-    }
-    .btn:disabled {
-      opacity: 0.7;
-      cursor: default;
-      transform: none;
-      box-shadow: none;
-    }
-    .btn.consent-selected {
-      outline: 2px solid rgba(255, 255, 255, 0.65);
-      outline-offset: 1px;
-    }
-    .hidden {
-      display: none;
-    }
-    .consent-info-btn {
-      margin-top: 2px;
-      font-size: 12px;
-      padding: 8px 10px;
-    }
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(15, 23, 42, 0.45);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 18px;
-      z-index: 20;
-    }
-    .modal-backdrop.hidden {
-      display: none;
-    }
-    .modal-card {
-      width: 100%;
-      max-width: 460px;
-      border-radius: 12px;
-      background: #fff;
-      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
-      padding: 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .modal-title {
-      font-size: 16px;
-      font-weight: 700;
-      color: #111827;
-    }
-    .modal-text {
-      font-size: 13px;
-      color: #374151;
-      line-height: 1.5;
-    }
-    .modal-list {
-      margin-left: 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      font-size: 13px;
-      color: #374151;
-      line-height: 1.4;
-    }
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 4px;
-    }
-    .modal-actions .btn {
-      width: auto;
-      min-width: 112px;
-      margin-top: 0;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="badge" id="experiment-badge">Welcome</div>
-    <h1 id="experiment-title">Welcome to Focular</h1>
+    <div class="badge" id="experiment-badge">Phase 2</div>
+    <h1 id="experiment-title">Experiment update</h1>
     <p class="subtitle" id="experiment-subtitle">
-      This experiment starts the day after installation and lasts 6 days. Phase 1 logs visits only for 3 days. Phase 2 enables the procrastination overlay for 3 days.
+      The experiment is continuing and Focular has updated your current phase.
     </p>
 
     <div class="timeline">
@@ -285,51 +125,7 @@
       You can close this window and continue using your browser.
     </div>
 
-    <div class="setup" id="trigger-setup">
-      <div class="setup-title">Add at least 2 trigger sites before continuing</div>
-      <div class="setup-help">You can add or edit more later from the extension popup (Focular icon in the browser top-right corner).</div>
-      <div class="setup-row">
-        <input class="setup-input" id="trigger-site-input" type="text" placeholder="e.g. youtube.com">
-        <button class="btn secondary" id="add-trigger-site-btn" type="button">Add</button>
-      </div>
-      <div class="setup-list" id="trigger-site-list"></div>
-      <div class="feedback" id="trigger-feedback"></div>
-
-      <div class="setup-title">Optional: add your email</div>
-      <div class="setup-help">If you want to help us by answering some questions about the study, add an email address.</div>
-      <div class="setup-row">
-        <input class="setup-input" id="email-input" type="email" placeholder="you@example.com" autocomplete="email">
-        <button class="btn secondary" id="save-email-btn" type="button">Save</button>
-      </div>
-      <div class="feedback" id="email-feedback"></div>
-    </div>
-
-    <div class="consent-row" id="consent-row">
-      <button class="btn consent-yes" id="consent-yes-btn" type="button">I Consent</button>
-      <button class="btn consent-no" id="consent-no-btn" type="button">I do not consent</button>
-    </div>
-    <button class="btn secondary consent-info-btn" id="consent-info-btn" type="button">What am I consenting to?</button>
-    <div class="feedback" id="consent-feedback"></div>
-    <button class="btn" id="primary-btn" type="button">Got it</button>
-  </div>
-
-  <div class="modal-backdrop hidden" id="consent-modal" role="dialog" aria-modal="true" aria-labelledby="consent-modal-title">
-    <div class="modal-card">
-      <div class="modal-title" id="consent-modal-title">Consent information</div>
-      <p class="modal-text">
-        By selecting "I Consent", you agree to participate in this study and allow Focular to log limited usage data.
-      </p>
-      <ul class="modal-list">
-        <li>We log only time spent on websites that you add as trigger sites.</li>
-        <li>We do not log browsing activity for websites you did not add.</li>
-        <li>We do not collect page content, passwords, or text you type on websites.</li>
-        <li>If you choose to provide an email address, we store it with your participant ID.</li>
-        <li>You can edit your trigger sites at any time from the Focular extension popup.</li>
-      </ul>
-      <div class="modal-actions">
-        <button class="btn" id="close-consent-modal-btn" type="button">I understand</button>
-      </div>
-    </div>
+    <button class="btn" id="primary-btn" type="button">Close</button>
   </div>
 
   <script src="experiment.js"></script>

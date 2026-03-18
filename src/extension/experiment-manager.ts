@@ -1,10 +1,10 @@
 import { DbLogger } from './dblogger';
+import { DAY_MS, EXPERIMENT_OVERLAY_DAYS, EXPERIMENT_TOTAL_DAYS } from '../shared/experiment-constants';
+import { getNextLocalMidnight } from '../shared/time';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const EXPERIMENT_OVERLAY_DAYS = 3;
-const EXPERIMENT_TOTAL_DAYS = 6;
 export const EXPERIMENT_ALARM_NAME = 'focular-experiment-alarm';
 const EXPERIMENT_STATE_KEY = 'experimentState';
+const EXPERIMENT_CONSENT_KEY = 'experimentConsentGiven';
 
 type DelayTimerLabel = 'Instant' | '5' | '10';
 type DelayTimerOption = { label: DelayTimerLabel; delayMs: number };
@@ -21,13 +21,11 @@ type ExperimentState = {
 	startAt: number;
 	phase: ExperimentPhase;
 	experimentStartAt?: number;
-	onboardingShown?: boolean;
 	overlayShown?: boolean;
 	completionShown?: boolean;
 };
 
-type ExperimentRefreshReason = 'startup' | 'alarm' | 'install';
-type ExperimentPopupMode = 'welcome' | 'overlay' | 'complete';
+type ExperimentPopupMode = 'overlay' | 'complete';
 
 type ExperimentManagerOptions = {
 	dbLogger: DbLogger;
@@ -47,21 +45,17 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 
 	async function initExperiment() {
 		await options.dbLogger.ensureUserId();
-		await refreshExperimentState('startup');
+		await refreshExperimentState();
 	}
 
 	async function handleFirstInstall() {
-		const state = await refreshExperimentState('install');
+		const state = await refreshExperimentState();
 		await options.dbLogger.ensureUserId();
 		await options.dbLogger.logUserCreated(state.startAt, state.phase);
 		await ensureInitialDelayChoice();
-		if (!state.onboardingShown) {
-			state.onboardingShown = true;
-			await saveExperimentState(state);
-		}
 	}
 
-	async function refreshExperimentState(reason: ExperimentRefreshReason): Promise<ExperimentState> {
+	async function refreshExperimentState(): Promise<ExperimentState> {
 		const state = await ensureExperimentState();
 		const nowMs = Date.now();
 		const nextPhase = computeExperimentPhase(state.startAt, nowMs, state.experimentStartAt);
@@ -74,15 +68,12 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 			phaseChanged = true;
 		}
 
-		const onboardingShown = state.onboardingShown === true;
 		const overlayShown = state.overlayShown === true;
 		const completionShown = state.completionShown === true;
 		if (
-			state.onboardingShown !== onboardingShown ||
 			state.overlayShown !== overlayShown ||
 			state.completionShown !== completionShown
 		) {
-			state.onboardingShown = onboardingShown;
 			state.overlayShown = overlayShown;
 			state.completionShown = completionShown;
 			changed = true;
@@ -95,8 +86,12 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 			await options.dbLogger.logUserExperimentPhase(state.phase);
 		}
 
-		await applyExperimentPhase(state, phaseChanged);
+		const consentGiven = await hasConsentGiven();
+		await applyExperimentPhase(state, phaseChanged, consentGiven);
 		scheduleExperimentAlarm(state, nowMs);
+		if (!consentGiven) {
+			return state;
+		}
 
 		if (state.phase === 'overlay' && !state.overlayShown) {
 			const didOpen = await options.openExperimentPopup('overlay');
@@ -135,8 +130,7 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		const initial: ExperimentState = {
 			startAt,
 			phase: 'logging',
-			experimentStartAt: startAt + 60 * 1000, //startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS,
-			onboardingShown: false,
+			experimentStartAt: startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS,
 			overlayShown: false,
 			completionShown: false,
 		};
@@ -156,7 +150,6 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 				startAt,
 				phase,
 				experimentStartAt: typeof raw.experimentStartAt === 'number' ? raw.experimentStartAt : undefined,
-				onboardingShown: raw.onboardingShown === true,
 				overlayShown: raw.overlayShown === true,
 				completionShown: raw.completionShown === true,
 			};
@@ -171,45 +164,41 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 
 	async function ensureInitialDelayChoice(): Promise<DelayTimerOption> {
 		try {
-			const res = await options.getFromStorage(['delayTimerChoice', 'popupDelayMs', 'delayTimerLocked']);
+			const res = await options.getFromStorage([
+				'experimentConsentGiven',
+				'delayTimerChoice',
+				'popupDelayMs',
+				'delayTimerLocked',
+			]);
+			const consentGiven = res?.[EXPERIMENT_CONSENT_KEY] === true;
 			const existingLabel = typeof res?.delayTimerChoice === 'string' ? res.delayTimerChoice : null;
 			const existingDelay = typeof res?.popupDelayMs === 'number' ? res.popupDelayMs : null;
 			const byDelay = resolveDelayOptionByDelay(existingDelay);
 			if (byDelay) {
-				if (res?.delayTimerLocked !== true) {
-					await options.setToStorage({
-						popupDelayMs: byDelay.delayMs,
-						delayTimerChoice: byDelay.label,
-						delayTimerLocked: true,
-					});
+				if (!consentGiven) {
+					if (res?.delayTimerLocked === true) {
+						await options.setToStorage({
+							delayTimerLocked: false,
+						});
+					}
+					return byDelay;
 				}
 				return byDelay;
 			}
 			const byLabel = resolveDelayOptionByLabel(existingLabel);
 			if (byLabel) {
-				if (res?.delayTimerLocked !== true) {
-					await options.setToStorage({
-						popupDelayMs: byLabel.delayMs,
-						delayTimerChoice: byLabel.label,
-						delayTimerLocked: true,
-					});
+				if (!consentGiven) {
+					if (res?.delayTimerLocked === true) {
+						await options.setToStorage({
+							delayTimerLocked: false,
+						});
+					}
+					return byLabel;
 				}
 				return byLabel;
 			}
 		} catch (e) {}
-
-		const assignedLabel = await options.dbLogger.assignDelayTimerRoundRobin();
-		let choice = resolveDelayOptionByLabel(assignedLabel);
-		if (!choice) {
-			choice = { label: 'Instant', delayMs: 0 };
-			await options.dbLogger.logUserDelayTimer(choice.label);
-		}
-		await options.setToStorage({
-			popupDelayMs: choice.delayMs,
-			delayTimerChoice: choice.label,
-			delayTimerLocked: true,
-		});
-		return choice;
+		return { label: 'Instant', delayMs: 0 };
 	}
 
 	function normalizeExperimentPhase(value: any): ExperimentPhase {
@@ -217,7 +206,11 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		return 'logging';
 	}
 
-	async function applyExperimentPhase(state: ExperimentState, phaseChanged: boolean) {
+	async function applyExperimentPhase(state: ExperimentState, phaseChanged: boolean, consentGiven: boolean) {
+		if (!consentGiven) {
+			await options.setPopupEnabled(false);
+			return;
+		}
 		if (state.phase === 'logging') {
 			await options.setPopupEnabled(false);
 			return;
@@ -263,9 +256,12 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		return DELAY_TIMER_OPTIONS.find((option) => option.label === label) ?? null;
 	}
 
-	function getNextLocalMidnight(nowMs: number): number {
-		const next = new Date(nowMs);
-		next.setHours(24, 0, 0, 0);
-		return next.getTime();
+	async function hasConsentGiven(): Promise<boolean> {
+		try {
+			const res = await options.getFromStorage([EXPERIMENT_CONSENT_KEY]);
+			return res?.[EXPERIMENT_CONSENT_KEY] === true;
+		} catch (e) {
+			return false;
+		}
 	}
 }

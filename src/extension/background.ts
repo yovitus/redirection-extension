@@ -5,6 +5,8 @@
  */
 
 import { normalizeStoredList } from '../ui/utils/list-utils';
+import { normalizeTriggerSite } from '../shared/trigger-site';
+import { getNextLocalMidnight } from '../shared/time';
 import { createDelayManager } from './delay-manager';
 import { createExperimentManager, EXPERIMENT_ALARM_NAME } from './experiment-manager';
 import { DbLogger } from './dblogger';
@@ -16,10 +18,13 @@ const LOG_FUNCTION_URL = 'https://khnycvxxfdixvtofxfqm.supabase.co/rest/v1/logs'
 const LOG_ANON_KEY = 'sb_publishable_MlbW7wbBg8vh663gUXFP_w_grOoa-DD';
 const LOG_USER_ID_KEY = 'focularUserId';
 const USER_LOG_URL = 'https://khnycvxxfdixvtofxfqm.supabase.co/rest/v1/users';
+const TRIGGER_LOG_URL = 'https://khnycvxxfdixvtofxfqm.supabase.co/rest/v1/trigger_site_events';
 const dbLogger = new DbLogger({
   logUrl: LOG_FUNCTION_URL,
   anonKey: LOG_ANON_KEY,
   userUrl: USER_LOG_URL,
+  triggerLogUrl: TRIGGER_LOG_URL,
+  consentKey: 'experimentConsentGiven',
   storage: chromeApi?.storage?.local ?? null,
   userIdKey: LOG_USER_ID_KEY,
 });
@@ -112,10 +117,47 @@ function watchStorage() {
 	try {
 		chromeApi.storage.onChanged.addListener((changes: any, area: string) => {
 			if (area !== 'local') return;
-			if (!changes.triggerSites && !changes.savedSites && !changes.popupDelayMs && !changes.popupEnabled) return;
+			const hasTriggerChange = !!(changes.triggerSites || changes.savedSites);
+			if (!hasTriggerChange && !changes.popupDelayMs && !changes.popupEnabled) return;
+			if (hasTriggerChange) {
+				void logTriggerSitesFromStorageChange(changes);
+			}
 			refreshSettings();
 		});
 	} catch (e) {}
+}
+
+function logTriggerSitesFromStorageChange(changes: any) {
+	try {
+		const change = changes.triggerSites ?? changes.savedSites;
+		if (!change) return;
+		const oldSites = normalizeTriggerSiteList(change.oldValue);
+		const newSites = normalizeTriggerSiteList(change.newValue);
+		const { added, removed } = diffTriggerSiteLists(oldSites, newSites);
+		if (added.length === 0 && removed.length === 0) return;
+		void dbLogger.logTriggerSiteChanges(added, removed, newSites);
+	} catch (e) {}
+}
+
+function normalizeTriggerSiteList(value: any): string[] {
+	const seen = new Set<string>();
+	const output: string[] = [];
+	for (const site of normalizeStoredList(value)) {
+		const normalized = normalizeTriggerSite(String(site || ''));
+		if (!normalized) continue;
+		if (seen.has(normalized)) continue;
+		seen.add(normalized);
+		output.push(normalized);
+	}
+	return output;
+}
+
+function diffTriggerSiteLists(previous: string[], next: string[]) {
+	const prevSet = new Set(previous);
+	const nextSet = new Set(next);
+	const added = next.filter((site) => !prevSet.has(site));
+	const removed = previous.filter((site) => !nextSet.has(site));
+	return { added, removed };
 }
 
 // Handle messages from content scripts (dismiss requests).
@@ -129,17 +171,11 @@ function watchMessages() {
 			if (message.type === 'overlay-ready') {
 				handleOverlayReady(sender);
 			}
-			if (message.type === 'experiment-popup-ready') {
-				handleExperimentPopupReady();
-			}
 			if (message.type === 'experiment-consent') {
 				handleExperimentConsent(message);
 			}
 			if (message.type === 'experiment-email') {
 				handleExperimentEmail(message);
-			}
-			if (message.type === 'open-settings-after-experiment-close') {
-				void closeExperimentPopupAndOpenExtensionPopup();
 			}
 		});
 	} catch (e) {}
@@ -175,22 +211,66 @@ function handleOverlayReady(sender: any) {
 		})
 		.catch(() => {});
 }
-async function handleExperimentPopupReady() {
-	if (!experimentPopupWindowId) {
-		try {
-			const existingId = await findExistingExperimentPopupWindow();
-			if (existingId) {
-				experimentPopupWindowId = existingId;
-			}
-		} catch (e) {}
-	}
-	updateDimState();
-}
-
 async function handleExperimentConsent(message:any) {
 	try {
 		if (typeof message?.consent !== 'boolean') return;
-		await dbLogger.logUserConsent(message.consent);
+		await setToStorage({ experimentConsentGiven: message.consent });
+		if (!message.consent) {
+			await experimentManager.refreshExperimentState();
+			return;
+		}
+		await dbLogger.logUserConsent(true);
+		const res = await getFromStorage([
+			'experimentState',
+			'experimentUserEmail',
+			'delayTimerChoice',
+			'delayTimerLocked',
+			'popupDelayMs',
+			'triggerSites',
+			'savedSites',
+		]);
+		const state = res?.experimentState;
+		const startAt =
+			typeof state?.startAt === 'number' ? state.startAt : getNextLocalMidnight(Date.now());
+		const phase = typeof state?.phase === 'string' ? state.phase : undefined;
+		await dbLogger.logUserCreated(startAt, phase);
+		if (phase === 'logging' || phase === 'overlay' || phase === 'completed') {
+			await dbLogger.logUserExperimentPhase(phase);
+		}
+		const email = typeof res?.experimentUserEmail === 'string' ? res.experimentUserEmail : '';
+		if (email) {
+			await dbLogger.logUserEmail(email);
+		}
+		const delayChoice = typeof res?.delayTimerChoice === 'string' ? res.delayTimerChoice : null;
+		const delayLocked = res?.delayTimerLocked === true;
+		let finalDelayChoice: 'Instant' | '5' | '10' | null =
+			delayChoice === 'Instant' || delayChoice === '5' || delayChoice === '10' ? delayChoice : null;
+		let finalDelayMs = typeof res?.popupDelayMs === 'number' ? res.popupDelayMs : null;
+		if (!delayLocked) {
+			const assignedLabel = await dbLogger.assignDelayTimerRoundRobin();
+			const assigned =
+				assignedLabel === 'Instant' || assignedLabel === '5' || assignedLabel === '10' ? assignedLabel : null;
+			finalDelayChoice = assigned ?? finalDelayChoice ?? 'Instant';
+			finalDelayMs =
+				finalDelayChoice === '10'
+					? 10 * 60 * 1000
+					: finalDelayChoice === '5'
+					? 5 * 60 * 1000
+					: 0;
+			await setToStorage({
+				popupDelayMs: finalDelayMs,
+				delayTimerChoice: finalDelayChoice,
+				delayTimerLocked: true,
+			});
+		}
+		if (finalDelayChoice) {
+			await dbLogger.logUserDelayTimer(finalDelayChoice);
+		}
+		const triggerSites = normalizeTriggerSiteList(res?.triggerSites ?? res?.savedSites);
+		if (triggerSites.length > 0) {
+			await dbLogger.logTriggerSitesSnapshot(triggerSites);
+		}
+		await experimentManager.refreshExperimentState();
 	} catch (e) {}
 }
 
@@ -257,7 +337,7 @@ function watchTabs() {
 		chromeApi.tabs.onRemoved.addListener((tabId: number) => {
 			popupShownByTabAndDomain.delete(tabId);
 			if (tabId === currentActiveTabId) {
-				endActiveVisit('tab-closed');
+				endActiveVisit();
 				currentActiveTabId = null;
 				currentActiveTabUrl = null;
 				currentActiveTabWindowId = null;
@@ -297,7 +377,7 @@ function watchWindows() {
 
 		chromeApi.windows.onRemoved.addListener((windowId: number) => {
 			if (popupWindowId === windowId) {
-				endGameOverlaySession('window-removed');
+				endGameOverlaySession();
 				popupWindowId = null;
 				suppressNullActiveUpdate = true;
 				updateDimState();
@@ -330,39 +410,68 @@ function refreshActiveTab() {
 	} catch (e) {}
 }
 
-// Query the active tab and compute whether it is a trigger site.
-function getActiveTriggerState(): Promise<boolean> {
+function queryTabs(queryInfo: any): Promise<any[]> {
 	return new Promise((resolve) => {
 		try {
-			chromeApi.tabs.query({ active: true, lastFocusedWindow: true }, (tabs: any[]) => {
-				const tab = tabs && tabs.length > 0 ? tabs[0] : null;
-				if (tab) {
-					currentActiveTabId = tab.id ?? currentActiveTabId;
-					currentActiveTabUrl = tab.url ?? currentActiveTabUrl;
-					currentActiveTabWindowId = tab.windowId ?? currentActiveTabWindowId;
-					if (!isModalWindow(tab.windowId)) {
-						lastNonPopupUrl = tab.url ?? lastNonPopupUrl;
-					}
-				}
-
-				const isPopupTab = isModalWindow(currentActiveTabWindowId);
-				if (isPopupTab && !lastNonPopupUrl) {
-					lastNonPopupUrl = currentVisitedUrl;
-				}
-				const href = isPopupTab ? lastNonPopupUrl : currentActiveTabUrl;
-				if (!href) return resolve(currentVisitedIsTrigger);
-
-				const isTrigger = !!findMatchKey(href, cachedTriggerSites);
-				currentTriggerDomain = isTrigger ? findMatchKey(href, cachedTriggerSites) : null;
-				currentVisitedUrl = href;
-				currentVisitedIsTrigger = isTrigger;
-				persistNavState();
-				resolve(isTrigger);
+			chromeApi.tabs.query(queryInfo, (tabs: any[]) => {
+				resolve(Array.isArray(tabs) ? tabs : []);
 			});
 		} catch (e) {
-			resolve(currentVisitedIsTrigger);
+			resolve([]);
 		}
 	});
+}
+
+async function hasAudibleTriggerTab(): Promise<boolean> {
+	try {
+		if (!cachedTriggerSites || cachedTriggerSites.length === 0) return false;
+		const tabs = await queryTabs({ audible: true });
+		for (const tab of tabs) {
+			const url = typeof tab?.url === 'string' ? tab.url : '';
+			if (!url) continue;
+			if (findMatchKey(url, cachedTriggerSites)) return true;
+		}
+	} catch (e) {}
+	return false;
+}
+
+// Query the active tab and compute whether it is a trigger site.
+async function getActiveTriggerState(): Promise<boolean> {
+	try {
+		const tabs = await queryTabs({ active: true, lastFocusedWindow: true });
+		const tab = tabs && tabs.length > 0 ? tabs[0] : null;
+		if (tab) {
+			currentActiveTabId = tab.id ?? currentActiveTabId;
+			currentActiveTabUrl = tab.url ?? currentActiveTabUrl;
+			currentActiveTabWindowId = tab.windowId ?? currentActiveTabWindowId;
+			if (!isModalWindow(tab.windowId)) {
+				lastNonPopupUrl = tab.url ?? lastNonPopupUrl;
+			}
+		}
+
+		const isPopupTab = isModalWindow(currentActiveTabWindowId);
+		if (isPopupTab && !lastNonPopupUrl) {
+			lastNonPopupUrl = currentVisitedUrl;
+		}
+		const href = isPopupTab ? lastNonPopupUrl : currentActiveTabUrl;
+		if (!href) {
+			const audibleTrigger = await hasAudibleTriggerTab();
+			return currentVisitedIsTrigger || audibleTrigger;
+		}
+
+		const domain = findMatchKey(href, cachedTriggerSites);
+		const isActiveTrigger = !!domain;
+		currentTriggerDomain = isActiveTrigger ? domain : null;
+		currentVisitedUrl = href;
+		currentVisitedIsTrigger = isActiveTrigger;
+		persistNavState();
+
+		const audibleTrigger = await hasAudibleTriggerTab();
+		return isActiveTrigger || audibleTrigger;
+	} catch (e) {
+		const audibleTrigger = await hasAudibleTriggerTab();
+		return currentVisitedIsTrigger || audibleTrigger;
+	}
 }
 
 // Wake on alarm to complete the delay timer.
@@ -371,11 +480,12 @@ function watchAlarms() {
 		chromeApi.alarms?.onAlarm.addListener((alarm: any) => {
 			if (!alarm?.name) return;
 			if (alarm.name === EXPERIMENT_ALARM_NAME) {
-				void experimentManager.refreshExperimentState('alarm');
+				void experimentManager.refreshExperimentState();
 				return;
 			}
 			navQueue = navQueue.then(async () => {
 				await ensureNavStateLoaded();
+				if (experimentPopupWindowId) return;
 				const isTrigger = await getActiveTriggerState();
 				delayManager.handleAlarm(alarm.name, isTrigger);
 			});
@@ -397,7 +507,7 @@ function watchInstall() {
 	} catch (e) {}
 }
 
-async function openExperimentPopup(mode: 'welcome' | 'overlay' | 'complete'): Promise<boolean> {
+async function openExperimentPopup(mode: 'overlay' | 'complete'): Promise<boolean> {
 	try {
 		if (!chromeApi?.runtime?.getURL) return false;
 		if (experimentPopupWindowId) {
@@ -442,7 +552,7 @@ async function refreshSettings() {
 	try {
 		const res = await getFromStorage(['triggerSites', 'savedSites', 'popupDelayMs', 'popupEnabled']);
 		const previousDelay = popupDelayMs;
-		cachedTriggerSites = normalizeStoredList(res.triggerSites ?? res.savedSites);
+		cachedTriggerSites = normalizeTriggerSiteList(res.triggerSites ?? res.savedSites);
 		popupDelayMs = typeof res.popupDelayMs === 'number' ? res.popupDelayMs : 0;
 		popupEnabled = res.popupEnabled === true;
 		if (popupDelayMs !== previousDelay) {
@@ -486,71 +596,56 @@ function updateActiveContext() {
 		const href = isPopupTab ? lastNonPopupUrl : currentActiveTabUrl;
 		if (!href) {
 			if (popupWindowId && activeVisitStartTs && activeVisitDomain) {
-				endActiveVisit('popup-open');
+				endActiveVisit();
 			}
 			return;
 		}
 		const domain = findMatchKey(href, cachedTriggerSites);
-		console.log(domain);
-		const isTrigger = !!(href && domain);
-		currentTriggerDomain = isTrigger ? domain : null;
-		const shouldTrackActiveVisit = isTrigger && !popupWindowId;
+		const isActiveTrigger = !!(href && domain);
+		const isAudibleTrigger = await hasAudibleTriggerTab();
+		const isTriggerForDelay = isActiveTrigger || isAudibleTrigger;
+		currentTriggerDomain = isActiveTrigger ? domain : null;
+		const shouldTrackActiveVisit = isActiveTrigger && !popupWindowId;
 		if (shouldTrackActiveVisit) {
 			if (!activeVisitStartTs && domain) {
 				activeVisitStartTs = Date.now();
 				activeVisitDomain = domain;
-				console.log(
-					"start active visit for domain",
-					domain,
-					"at",
-					new Date(activeVisitStartTs).toISOString(),
-				);
 			}
 		}
 		if (!shouldTrackActiveVisit && activeVisitStartTs && activeVisitDomain) {
-			endActiveVisit(isTrigger ? 'popup-open' : 'exit');
+			endActiveVisit();
 		}
 
 		currentVisitedUrl = href;
-		currentVisitedIsTrigger = isTrigger;
+		currentVisitedIsTrigger = isActiveTrigger;
 
 		persistNavState();
 
-		delayManager.updateContext(isTrigger);
-		if (popupWindowId && isTrigger) {
+		// Pause delay logic while the experiment modal is open.
+		if (experimentPopupWindowId) {
+			if (activeVisitStartTs && activeVisitDomain) {
+				endActiveVisit();
+			}
+			return;
+		}
+
+		await delayManager.updateContext(isTriggerForDelay);
+		if (popupWindowId && isActiveTrigger) {
 			ensureDimOnActiveTab();
 		}
 	});
 	
 }
 
-function endActiveVisit(reason: string) {
+function endActiveVisit() {
 	if (!activeVisitStartTs || !activeVisitDomain) return;
 	const durationMs = Date.now() - activeVisitStartTs;
 	const durationMinutes = durationMs / 60000;
 	if (durationMs <= MIN_LOGGED_VISIT_MS) {
-		console.log(
-			"skip active visit log for domain",
-			activeVisitDomain,
-			"duration ms:",
-			durationMs,
-			"reason:",
-			reason,
-		);
 		activeVisitStartTs = null;
 		activeVisitDomain = null;
 		return;
 	}
-	console.log(
-		"end active visit for domain",
-		activeVisitDomain,
-		"at",
-		new Date().toISOString(),
-		"duration minutes:",
-		durationMinutes.toFixed(2),
-		"reason:",
-		reason,
-	);
 	dbLogger.logVisit(activeVisitDomain, durationMinutes);
 
 	activeVisitStartTs = null;
@@ -584,15 +679,11 @@ function findMatchKey(href: string, patterns: string[]): string | null {
 		const trimmed = String(pattern || '').trim();
 		if (!trimmed) continue;
 
-		if (/^https?:\/\//i.test(trimmed)) {
-			if (href.startsWith(trimmed)) return trimmed;
-			continue;
-		}
-
-		const normalizedPattern = trimmed.replace(/^www\./i, '');
+		const normalizedPattern = normalizeTriggerSite(trimmed);
+		if (!normalizedPattern) continue;
 		const currentHost = currentUrl.hostname.replace(/^www\./i, '');
 		if (currentHost === normalizedPattern || currentHost.endsWith(`.${normalizedPattern}`)) {
-			return trimmed;
+			return normalizedPattern;
 		}
 	}
 
@@ -602,6 +693,10 @@ function findMatchKey(href: string, patterns: string[]): string | null {
 // Open the game popup window and dim all tabs.
 async function openPopup() {
 	if (shouldSuppressPopupForCurrentTab()) return;
+	if (experimentPopupWindowId) {
+		updateDimState();
+		return;
+	}
 	if (popupWindowId) {
 		startGameOverlaySession();
 		return;
@@ -681,7 +776,7 @@ function closePopup() {
 		updateDimState();
 		return;
 	}
-	endGameOverlaySession('close-popup');
+	endGameOverlaySession();
 	const toClose = popupWindowId;
 	popupWindowId = null;
 	suppressNullActiveUpdate = true;
@@ -700,54 +795,6 @@ function closePopup() {
 	} catch (e) {
 		updateDimState();
 		refreshActiveTab();
-	}
-}
-
-function closeExperimentPopup() {
-	if (!experimentPopupWindowId) {
-		updateDimState();
-		return;
-	}
-	const toClose = experimentPopupWindowId;
-	experimentPopupWindowId = null;
-	suppressNullActiveUpdate = true;
-
-	try {
-		chromeApi.windows.remove(toClose, () => {
-			const err = chromeApi.runtime.lastError;
-			if (err) {
-				updateDimState();
-				refreshActiveTab();
-				return;
-			}
-			updateDimState();
-			refreshActiveTab();
-		});
-	} catch (e) {
-		updateDimState();
-		refreshActiveTab();
-	}
-}
-
-async function closeExperimentPopupAndOpenExtensionPopup() {
-	if (!experimentPopupWindowId) {
-		await openExtensionPopupWithFallback();
-		return;
-	}
-	const toClose = experimentPopupWindowId;
-	experimentPopupWindowId = null;
-	suppressNullActiveUpdate = true;
-
-	try {
-		chromeApi.windows.remove(toClose, async () => {
-			updateDimState();
-			refreshActiveTab();
-			await openExtensionPopupWithFallback();
-		});
-	} catch (e) {
-		updateDimState();
-		refreshActiveTab();
-		await openExtensionPopupWithFallback();
 	}
 }
 
@@ -841,7 +888,7 @@ function isModalWindow(windowId: number | null | undefined): boolean {
 }
 
 function hasModalOpen(): boolean {
-	return !!popupWindowId;
+	return !!popupWindowId || !!experimentPopupWindowId;
 }
 
 function startGameOverlaySession() {
@@ -875,19 +922,10 @@ function markPopupShownForCurrentTab() {
 	});
 }
 
-function endGameOverlaySession(reason: string) {
+function endGameOverlaySession() {
 	if (!gameOverlayStartTs) return;
 	const durationMs = Date.now() - gameOverlayStartTs;
 	const durationMinutes = durationMs / 60000;
-	console.log(
-		'end game overlay session',
-		'at',
-		new Date().toISOString(),
-		'duration minutes:',
-		durationMinutes.toFixed(2),
-		'reason:',
-		reason,
-	);
 	if (durationMs > MIN_LOGGED_VISIT_MS) {
 		void dbLogger.logVisit(GAME_OVERLAY_DOMAIN, durationMinutes);
 	}

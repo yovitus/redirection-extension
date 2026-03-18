@@ -6,6 +6,8 @@
 
 import { normalizeStoredList } from './utils/list-utils';
 import { createTriggerAutocomplete, TriggerAutocompleteHandle } from './utils/trigger-autocomplete';
+import { DAY_MS, EXPERIMENT_OVERLAY_DAYS, EXPERIMENT_TOTAL_DAYS } from '../shared/experiment-constants';
+import { normalizeTriggerSite } from '../shared/trigger-site';
 
 // Use chrome from window to avoid duplicate ambient declarations
 const chromeApi: any = (window as any).chrome;
@@ -44,12 +46,8 @@ const LISTS: ListConfig[] = [
 	},
 ];
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const EXPERIMENT_OVERLAY_DAYS = 3;
-const EXPERIMENT_TOTAL_DAYS = 6;
 const EXPERIMENT_STATE_KEY = 'experimentState';
 const EXPERIMENT_CONSENT_KEY = 'experimentConsentGiven';
-const EXPERIMENT_ONBOARDING_COMPLETE_KEY = 'experimentOnboardingComplete';
 const EXPERIMENT_EMAIL_KEY = 'experimentUserEmail';
 const MIN_TRIGGER_SITES_REQUIRED = 2;
 const AUTOCOMPLETE_MAX_RESULTS = 6;
@@ -101,28 +99,14 @@ async function bootstrapPopupView() {
 }
 
 async function renderPopupView() {
-	const [sites, consentChoice, onboardingComplete] = await Promise.all([
+	const [sites, consentChoice] = await Promise.all([
 		getList('triggerSites'),
 		getExperimentConsentChoice(),
-		getExperimentOnboardingComplete(),
 	]);
 	updateTriggerAutocompleteSource(sites);
-	if (onboardingComplete) {
-		setPopupViewVisibility(true);
-		if (!mainPopupInitialized) {
-			initMainPopup();
-		}
-		await renderMainPopup();
-		return;
-	}
 	const hasMinimumSites = sites.length >= MIN_TRIGGER_SITES_REQUIRED;
 	const canShowMainPopup = consentChoice === true && hasMinimumSites;
 	if (canShowMainPopup) {
-		try {
-			await setExperimentOnboardingComplete(true);
-		} catch (e) {
-			console.warn('Failed to persist onboarding completion', e);
-		}
 		setPopupViewVisibility(true);
 		if (!mainPopupInitialized) {
 			initMainPopup();
@@ -609,7 +593,7 @@ async function renderExperimentStatus() {
 	const hasStarted = nowMs >= state.startAt;
 	const dayIndex = Math.floor((nowMs - state.startAt) / DAY_MS) + 1;
 	const dayNumber = Math.min(EXPERIMENT_TOTAL_DAYS, Math.max(1, dayIndex));
-	const overlayAt = state.startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
+	const overlayAt = state.experimentStartAt ?? state.startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
 	const completeAt = state.startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
 
 	const phaseEl = document.getElementById('experiment-phase');
@@ -695,25 +679,6 @@ async function renderDelayTimer() {
 		valueEl.textContent = formatMs(delayMs);
 	}
 	stopTimerInterval();
-}
-
-// Normalize trigger site input for consistent matching.
-function normalizeTriggerSite(value: string): string {
-	const trimmed = (value || '').trim();
-	if (!trimmed) return '';
-
-	const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-	try {
-		const parsed = new URL(withProtocol);
-		return (parsed.hostname || '').toLowerCase().replace(/^www\./i, '');
-	} catch (e) {
-		return trimmed
-			.toLowerCase()
-			.replace(/^https?:\/\//i, '')
-			.replace(/^www\./i, '')
-			.replace(/\/+$/, '')
-			.split('/')[0];
-	}
 }
 
 function normalizeEmail(value: string): string {
@@ -899,31 +864,6 @@ function setExperimentEmail(email: string): Promise<void> {
 	});
 }
 
-function getExperimentOnboardingComplete(): Promise<boolean> {
-	return new Promise((resolve) => {
-		try {
-			chromeApi.storage.local.get([EXPERIMENT_ONBOARDING_COMPLETE_KEY], (res: any) => {
-				resolve(res?.[EXPERIMENT_ONBOARDING_COMPLETE_KEY] === true);
-			});
-		} catch (e) {
-			resolve(false);
-		}
-	});
-}
-
-function setExperimentOnboardingComplete(complete: boolean): Promise<void> {
-	return new Promise((resolve, reject) => {
-		try {
-			chromeApi.storage.local.set({ [EXPERIMENT_ONBOARDING_COMPLETE_KEY]: complete }, () => {
-				if (chromeApi.runtime.lastError) return reject(new Error(chromeApi.runtime.lastError.message));
-				resolve();
-			});
-		} catch (e) {
-			reject(e);
-		}
-	});
-}
-
 // Persist the popup enabled toggle.
 function setPopupEnabled(enabled: boolean): Promise<void> {
 	return new Promise((resolve, reject) => {
@@ -964,21 +904,29 @@ function setupStorageListener() {
 	try {
 		chromeApi.storage.onChanged.addListener((changes: any, area: string) => {
 			if (area !== 'local' && area !== 'session') return;
-			if (
-				changes.popupDelayMs ||
-				changes.popupEnabled ||
-				changes.delayState ||
-				changes.experimentState ||
-				changes.triggerSites ||
-				changes.savedSites ||
-				changes[EXPERIMENT_CONSENT_KEY] ||
-				changes[EXPERIMENT_EMAIL_KEY] ||
-				changes[EXPERIMENT_ONBOARDING_COMPLETE_KEY]
-			) {
+			const hasCoreUiChange =
+				!!changes.popupDelayMs ||
+				!!changes.popupEnabled ||
+				!!changes.experimentState ||
+				!!changes.triggerSites ||
+				!!changes.savedSites ||
+				!!changes[EXPERIMENT_CONSENT_KEY] ||
+				!!changes[EXPERIMENT_EMAIL_KEY];
+			if (hasCoreUiChange) {
 				void renderPopupView();
+				return;
+			}
+			if (changes.delayState && isMainPopupVisible()) {
+				void renderDelayTimer();
 			}
 		});
 	} catch (e) {}
+}
+
+function isMainPopupVisible(): boolean {
+	const main = document.getElementById('popup-main');
+	if (!main) return false;
+	return !main.classList.contains('hidden') && main.style.display !== 'none';
 }
 
 let timerIntervalId: number | null = null;
@@ -1009,7 +957,10 @@ function getExperimentPhase(state: ExperimentState, nowMs: number): ExperimentPh
 	if (!state?.startAt || !Number.isFinite(state.startAt)) return 'logging';
 	const elapsedMs = Math.max(0, nowMs - state.startAt);
 	if (elapsedMs >= EXPERIMENT_TOTAL_DAYS * DAY_MS) return 'completed';
-	if (elapsedMs >= EXPERIMENT_OVERLAY_DAYS * DAY_MS) return 'overlay';
+	const overlayStartMs = state.experimentStartAt
+		? Math.max(0, state.experimentStartAt - state.startAt)
+		: EXPERIMENT_OVERLAY_DAYS * DAY_MS;
+	if (elapsedMs >= overlayStartMs) return 'overlay';
 	return 'logging';
 }
 

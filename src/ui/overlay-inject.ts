@@ -4,10 +4,13 @@
  * Content script that shows a dimmed overlay while the popup window is open.
  */
 
+export {};
+
 const chromeApi: any = (window as any).chrome;
 const windowAny: any = window as any;
 
 const OVERLAY_ID = 'focular-dim-overlay';
+const GAME_CONTEXT_ID = 'focular-game-context';
 const GAME_URL = 'https://www.minisudoku.games/';
 
 init();
@@ -19,6 +22,7 @@ function init() {
 	windowAny.__focularOverlayInjected = true;
 	if (window.top !== window) return;
 	if (isGameWindow()) {
+		ensureGamePopupOverlay();
 		cleanupGamePopupLayout();
 		return;
 	}
@@ -82,6 +86,75 @@ function cleanupGamePopupLayout() {
 	});
 	observer.observe(document.documentElement, { childList: true, subtree: true });
 	applyCleanup();
+}
+
+function ensureGamePopupOverlay() {
+	try {
+		if (document.getElementById(GAME_CONTEXT_ID)) return;
+		const mount = document.body || document.documentElement;
+		if (!mount) {
+			setTimeout(ensureGamePopupOverlay, 200);
+			return;
+		}
+	const overlay = document.createElement('div');
+	overlay.id = GAME_CONTEXT_ID;
+	overlay.style.position = 'fixed';
+	overlay.style.top = '50%';
+	overlay.style.left = '50%';
+	overlay.style.transform = 'translate(-50%, -50%)';
+		overlay.style.maxWidth = '720px';
+		overlay.style.width = 'calc(100% - 48px)';
+		overlay.style.padding = '16px 20px';
+		overlay.style.borderRadius = '14px';
+		overlay.style.background = 'rgba(17, 24, 39, 0.92)';
+		overlay.style.color = '#f5f5f5';
+		overlay.style.textAlign = 'center';
+		overlay.style.lineHeight = '1.4';
+		overlay.style.fontFamily = '"Merriweather", "Georgia", serif';
+		overlay.style.boxShadow = '0 10px 28px rgba(0, 0, 0, 0.45)';
+		overlay.style.zIndex = '2147483647';
+
+		const title = document.createElement('div');
+		title.textContent = 'You are procrastinating.';
+		title.style.fontSize = '18px';
+		title.style.fontWeight = '600';
+		title.style.marginBottom = '6px';
+
+		const body = document.createElement('div');
+		body.textContent =
+			'Consider doing something else. Here is a game of sudoku for you to do something more stimulating.';
+		body.style.fontSize = '15px';
+
+		const close = document.createElement('button');
+		close.type = 'button';
+		close.textContent = 'Dismiss';
+		close.style.marginTop = '10px';
+		close.style.background = 'transparent';
+		close.style.border = '1px solid rgba(255, 255, 255, 0.5)';
+		close.style.color = '#f5f5f5';
+		close.style.borderRadius = '999px';
+		close.style.padding = '6px 12px';
+		close.style.cursor = 'pointer';
+		close.addEventListener('click', () => {
+			overlay.remove();
+		});
+
+		overlay.appendChild(title);
+		overlay.appendChild(body);
+		overlay.appendChild(close);
+
+		overlay.addEventListener('click', (event) => {
+			if (event.target !== overlay) return;
+			overlay.remove();
+		});
+		const dismissOnAnyClick = () => {
+			overlay.remove();
+			document.removeEventListener('click', dismissOnAnyClick, true);
+		};
+		document.addEventListener('click', dismissOnAnyClick, true);
+
+		mount.appendChild(overlay);
+	} catch (e) {}
 }
 
 // Render the dimmed overlay and click-to-close message.
