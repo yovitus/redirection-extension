@@ -40,7 +40,6 @@ const POPUP_MIN_HEIGHT = 480;
 const POPUP_MAX_HEIGHT = 820;
 const POPUP_ZOOM = 0.9;
 const BREAK_THRESHOLD_MS = 2 * 60 * 1000;
-const MIN_LOGGED_VISIT_MS = 5 * 1000;
 const GAME_OVERLAY_DOMAIN = 'focular-game-overlay';
 const TAB_POPUP_SUPPRESS_MS = 5 * 1000;
 
@@ -641,11 +640,6 @@ function endActiveVisit() {
 	if (!activeVisitStartTs || !activeVisitDomain) return;
 	const durationMs = Date.now() - activeVisitStartTs;
 	const durationMinutes = durationMs / 60000;
-	if (durationMs <= MIN_LOGGED_VISIT_MS) {
-		activeVisitStartTs = null;
-		activeVisitDomain = null;
-		return;
-	}
 	dbLogger.logVisit(activeVisitDomain, durationMinutes);
 
 	activeVisitStartTs = null;
@@ -924,11 +918,8 @@ function markPopupShownForCurrentTab() {
 
 function endGameOverlaySession() {
 	if (!gameOverlayStartTs) return;
-	const durationMs = Date.now() - gameOverlayStartTs;
-	const durationMinutes = durationMs / 60000;
-	if (durationMs > MIN_LOGGED_VISIT_MS) {
-		void dbLogger.logVisit(GAME_OVERLAY_DOMAIN, durationMinutes);
-	}
+	const durationMinutes = (Date.now() - gameOverlayStartTs) / 60000;
+	void dbLogger.logVisit(GAME_OVERLAY_DOMAIN, durationMinutes);
 	gameOverlayStartTs = null;
 }
 
