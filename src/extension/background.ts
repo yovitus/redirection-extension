@@ -42,6 +42,7 @@ const POPUP_ZOOM = 0.9;
 const BREAK_THRESHOLD_MS = 2 * 60 * 1000;
 const GAME_OVERLAY_DOMAIN = 'focular-game-overlay';
 const TAB_POPUP_SUPPRESS_MS = 5 * 1000;
+const ACTIVE_VISIT_STATE_KEY = 'activeVisitState';
 
 let activeVisitStartTs: number | null = null;
 let activeVisitDomain: string | null = null;
@@ -105,6 +106,7 @@ function init() {
 	watchWindows();
 	watchAlarms();
 	watchInstall();
+	watchStartup();
 	refreshActiveTab();
 	syncExistingPopupWindow();
 	syncExistingExperimentPopupWindow();
@@ -304,6 +306,10 @@ function watchTabs() {
 						lastNonPopupUrl = tab.url ?? null;
 					}
 					updateActiveContext();
+					return;
+				}
+				if (currentActiveTabId === null || tab?.active === true) {
+					refreshActiveTab();
 				}
 			}
 		});
@@ -506,6 +512,14 @@ function watchInstall() {
 	} catch (e) {}
 }
 
+function watchStartup() {
+	try {
+		chromeApi.runtime?.onStartup?.addListener(() => {
+			clearActiveVisitState();
+		});
+	} catch (e) {}
+}
+
 async function openExperimentPopup(mode: 'overlay' | 'complete'): Promise<boolean> {
 	try {
 		if (!chromeApi?.runtime?.getURL) return false;
@@ -606,9 +620,11 @@ function updateActiveContext() {
 		currentTriggerDomain = isActiveTrigger ? domain : null;
 		const shouldTrackActiveVisit = isActiveTrigger && !popupWindowId;
 		if (shouldTrackActiveVisit) {
+			if (activeVisitStartTs && activeVisitDomain && domain && activeVisitDomain !== domain) {
+				endActiveVisit();
+			}
 			if (!activeVisitStartTs && domain) {
-				activeVisitStartTs = Date.now();
-				activeVisitDomain = domain;
+				startActiveVisit(domain);
 			}
 		}
 		if (!shouldTrackActiveVisit && activeVisitStartTs && activeVisitDomain) {
@@ -633,7 +649,13 @@ function updateActiveContext() {
 			ensureDimOnActiveTab();
 		}
 	});
-	
+
+}
+
+function startActiveVisit(domain: string) {
+	activeVisitStartTs = Date.now();
+	activeVisitDomain = domain;
+	persistActiveVisitState();
 }
 
 function endActiveVisit() {
@@ -641,9 +663,7 @@ function endActiveVisit() {
 	const durationMs = Date.now() - activeVisitStartTs;
 	const durationMinutes = durationMs / 60000;
 	dbLogger.logVisit(activeVisitDomain, durationMinutes);
-
-	activeVisitStartTs = null;
-	activeVisitDomain = null;
+	clearActiveVisitState();
 }
 
 // Ensure the active tab shows the dim overlay when a popup is open.
@@ -1029,16 +1049,29 @@ function ensureNavStateLoaded(): Promise<void> {
 	return navStatePromise;
 }
 
-// Load the last navigation state from session/local storage.
+// Load the last navigation state and any in-flight visit from session/local storage.
 async function loadNavState(): Promise<void> {
 	try {
 		const storage = getStateStorage();
 		if (!storage) return;
-		const res = await getFromStorageArea(storage, ['navState']);
+		const res = await getFromStorageArea(storage, ['navState', ACTIVE_VISIT_STATE_KEY]);
 		const navState = res?.navState;
 		if (navState) {
+			currentActiveTabId = typeof navState.currentTabId === 'number' ? navState.currentTabId : null;
+			currentActiveTabWindowId = typeof navState.currentWindowId === 'number' ? navState.currentWindowId : null;
 			currentVisitedUrl = typeof navState.currentUrl === 'string' ? navState.currentUrl : null;
 			currentVisitedIsTrigger = !!navState.currentIsTrigger;
+			lastNonPopupUrl = typeof navState.lastNonPopupUrl === 'string' ? navState.lastNonPopupUrl : null;
+		}
+		const activeVisit = res?.[ACTIVE_VISIT_STATE_KEY];
+		const startTs = typeof activeVisit?.startTs === 'number' ? activeVisit.startTs : null;
+		const domain = typeof activeVisit?.domain === 'string' ? activeVisit.domain : null;
+		if (startTs && domain) {
+			activeVisitStartTs = startTs;
+			activeVisitDomain = domain;
+		} else {
+			activeVisitStartTs = null;
+			activeVisitDomain = null;
 		}
 	} catch (e) {
 		// ignore
@@ -1054,10 +1087,40 @@ function persistNavState() {
 		if (!storage) return;
 		storage.set({
 			navState: {
+				currentTabId: currentActiveTabId,
+				currentWindowId: currentActiveTabWindowId,
 				currentUrl: currentVisitedUrl,
 				currentIsTrigger: currentVisitedIsTrigger,
+				lastNonPopupUrl,
 			},
 		});
+	} catch (e) {}
+}
+
+function persistActiveVisitState() {
+	try {
+		const storage = getStateStorage();
+		if (!storage || !activeVisitStartTs || !activeVisitDomain) return;
+		storage.set({
+			[ACTIVE_VISIT_STATE_KEY]: {
+				startTs: activeVisitStartTs,
+				domain: activeVisitDomain,
+			},
+		});
+	} catch (e) {}
+}
+
+function clearActiveVisitState() {
+	activeVisitStartTs = null;
+	activeVisitDomain = null;
+	try {
+		const storage = getStateStorage();
+		if (!storage) return;
+		if (typeof storage.remove === 'function') {
+			storage.remove([ACTIVE_VISIT_STATE_KEY], () => {});
+			return;
+		}
+		storage.set({ [ACTIVE_VISIT_STATE_KEY]: null });
 	} catch (e) {}
 }
 
