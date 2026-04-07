@@ -5,6 +5,8 @@ import { getNextLocalMidnight } from '../shared/time';
 export const EXPERIMENT_ALARM_NAME = 'focular-experiment-alarm';
 const EXPERIMENT_STATE_KEY = 'experimentState';
 const EXPERIMENT_CONSENT_KEY = 'experimentConsentGiven';
+const EXPERIMENT_MIGRATION_VERSION_KEY = 'experimentScheduleVersion';
+const EXPERIMENT_MIGRATION_VERSION = 'existing-user-reset-v1';
 
 type DelayTimerLabel = 'Instant' | '5' | '10';
 type DelayTimerOption = { label: DelayTimerLabel; delayMs: number };
@@ -21,6 +23,7 @@ type ExperimentState = {
 	startAt: number;
 	phase: ExperimentPhase;
 	experimentStartAt?: number;
+	experimentEndAt?: number;
 	overlayShown?: boolean;
 	completionShown?: boolean;
 };
@@ -45,6 +48,7 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 
 	async function initExperiment() {
 		await options.dbLogger.ensureUserId();
+		await applyExperimentMigrationIfNeeded();
 		await refreshExperimentState();
 	}
 
@@ -58,7 +62,12 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 	async function refreshExperimentState(): Promise<ExperimentState> {
 		const state = await ensureExperimentState();
 		const nowMs = Date.now();
-		const nextPhase = computeExperimentPhase(state.startAt, nowMs, state.experimentStartAt);
+		const nextPhase = computeExperimentPhase(
+			state.startAt,
+			nowMs,
+			state.experimentStartAt,
+			state.experimentEndAt,
+		);
 
 		let changed = false;
 		let phaseChanged = false;
@@ -112,14 +121,17 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		return state;
 	}
 
-	function computeExperimentPhase(startAt: number, nowMs: number, experimentStartAt?: number): ExperimentPhase {
+	function computeExperimentPhase(
+		startAt: number,
+		nowMs: number,
+		experimentStartAt?: number,
+		experimentEndAt?: number,
+	): ExperimentPhase {
 		if (!Number.isFinite(startAt)) return 'logging';
-		const elapsedMs = Math.max(0, nowMs - startAt);
-		if (elapsedMs >= EXPERIMENT_TOTAL_DAYS * DAY_MS) return 'completed';
-		const overlayStartMs = experimentStartAt
-			? Math.max(0, experimentStartAt - startAt)
-			: EXPERIMENT_OVERLAY_DAYS * DAY_MS;
-		if (elapsedMs >= overlayStartMs) return 'overlay';
+		const overlayAt = experimentStartAt ?? startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
+		const completeAt = experimentEndAt ?? startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+		if (nowMs >= completeAt) return 'completed';
+		if (nowMs >= overlayAt) return 'overlay';
 		return 'logging';
 	}
 
@@ -127,15 +139,35 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		const stored = await loadExperimentState();
 		if (stored) return stored;
 		const startAt = getNextLocalMidnight(Date.now());
-		const initial: ExperimentState = {
-			startAt,
-			phase: 'logging',
-			experimentStartAt: startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS,
-			overlayShown: false,
-			completionShown: false,
-		};
+		const initial = buildExperimentState(startAt);
 		await saveExperimentState(initial);
 		return initial;
+	}
+
+	async function applyExperimentMigrationIfNeeded() {
+		try {
+			const res = await options.getFromStorage([
+				EXPERIMENT_STATE_KEY,
+				EXPERIMENT_MIGRATION_VERSION_KEY,
+				EXPERIMENT_CONSENT_KEY,
+			]);
+			const appliedVersion =
+				typeof res?.[EXPERIMENT_MIGRATION_VERSION_KEY] === 'string'
+					? res[EXPERIMENT_MIGRATION_VERSION_KEY]
+					: null;
+			if (appliedVersion === EXPERIMENT_MIGRATION_VERSION) return;
+
+			const rawState = res?.[EXPERIMENT_STATE_KEY];
+			if (!rawState || typeof rawState !== 'object' || typeof rawState.startAt !== 'number') return;
+
+			const nextState = buildExperimentState(getNextLocalMidnight(Date.now()));
+			await saveExperimentState(nextState, { popupEnabled: false });
+
+			if (res?.[EXPERIMENT_CONSENT_KEY] === true) {
+				await options.dbLogger.logUserCreated(nextState.startAt, nextState.phase);
+				await options.dbLogger.logUserExperimentPhase(nextState.phase);
+			}
+		} catch (e) {}
 	}
 
 	async function loadExperimentState(): Promise<ExperimentState | null> {
@@ -150,6 +182,7 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 				startAt,
 				phase,
 				experimentStartAt: typeof raw.experimentStartAt === 'number' ? raw.experimentStartAt : undefined,
+				experimentEndAt: typeof raw.experimentEndAt === 'number' ? raw.experimentEndAt : undefined,
 				overlayShown: raw.overlayShown === true,
 				completionShown: raw.completionShown === true,
 			};
@@ -158,8 +191,12 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		}
 	}
 
-	async function saveExperimentState(state: ExperimentState): Promise<void> {
-		await options.setToStorage({ [EXPERIMENT_STATE_KEY]: state });
+	async function saveExperimentState(state: ExperimentState, extraValues: Record<string, any> = {}): Promise<void> {
+		await options.setToStorage({
+			[EXPERIMENT_STATE_KEY]: state,
+			[EXPERIMENT_MIGRATION_VERSION_KEY]: EXPERIMENT_MIGRATION_VERSION,
+			...extraValues,
+		});
 	}
 
 	async function ensureInitialDelayChoice(): Promise<DelayTimerOption> {
@@ -231,7 +268,7 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 			const startAt = state.startAt;
 			if (!Number.isFinite(startAt) || !options.chromeApi?.alarms) return;
 			const overlayAt = state.experimentStartAt ?? startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
-			const completeAt = startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+			const completeAt = state.experimentEndAt ?? startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
 			let nextAt: number | null = null;
 			if (nowMs < overlayAt) {
 				nextAt = overlayAt;
@@ -254,6 +291,19 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 	function resolveDelayOptionByLabel(label: string | null): DelayTimerOption | null {
 		if (!label) return null;
 		return DELAY_TIMER_OPTIONS.find((option) => option.label === label) ?? null;
+	}
+
+	function buildExperimentState(startAt: number): ExperimentState {
+		const overlayAt = startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
+		const completeAt = startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+		return {
+			startAt,
+			phase: 'logging',
+			experimentStartAt: overlayAt,
+			experimentEndAt: completeAt,
+			overlayShown: false,
+			completionShown: false,
+		};
 	}
 
 	async function hasConsentGiven(): Promise<boolean> {
