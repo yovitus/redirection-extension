@@ -16,6 +16,7 @@ type ExperimentMode = 'overlay' | 'complete';
 type ExperimentState = {
 	startAt: number;
 	experimentStartAt?: number;
+	experimentEndAt?: number;
 };
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -27,7 +28,7 @@ async function initExperimentPopup() {
 	const state = await getExperimentState();
 	const startAt = typeof state?.startAt === 'number' ? state.startAt : Date.now();
 	const overlayAt = state?.experimentStartAt ?? startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
-	const completeAt = startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+	const completeAt = state?.experimentEndAt ?? startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
 
 	setText('week1-range', `${formatDate(startAt)} - ${formatDate(overlayAt - DAY_MS)} (logging only)`);
 	setText('week2-range', `${formatDate(overlayAt)} - ${formatDate(completeAt - DAY_MS)} (overlay enabled)`);
@@ -78,6 +79,7 @@ function getExperimentState(): Promise<ExperimentState | null> {
 				resolve({
 					startAt,
 					experimentStartAt: typeof raw.experimentStartAt === 'number' ? raw.experimentStartAt : undefined,
+					experimentEndAt: typeof raw.experimentEndAt === 'number' ? raw.experimentEndAt : undefined,
 				});
 			});
 		} catch (e) {
