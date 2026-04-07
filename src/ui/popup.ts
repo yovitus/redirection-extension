@@ -21,6 +21,7 @@ type ExperimentState = {
 	startAt: number;
 	phase?: ExperimentPhase;
 	experimentStartAt?: number;
+	experimentEndAt?: number;
 };
 
 type ListConfig = {
@@ -320,7 +321,7 @@ async function renderConsentGateTimeline() {
 	const state = await getExperimentState();
 	const startAt = typeof state?.startAt === 'number' ? state.startAt : Date.now();
 	const overlayAt = state?.experimentStartAt ?? startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
-	const completeAt = startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+	const completeAt = state?.experimentEndAt ?? startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
 
 	setText('gate-week1-range', `${formatDate(startAt)} - ${formatDate(overlayAt - DAY_MS)} (logging only)`);
 	setText('gate-week2-range', `${formatDate(overlayAt)} - ${formatDate(completeAt - DAY_MS)} (overlay enabled)`);
@@ -592,9 +593,10 @@ async function renderExperimentStatus() {
 	const phase = getExperimentPhase(state, nowMs);
 	const hasStarted = nowMs >= state.startAt;
 	const dayIndex = Math.floor((nowMs - state.startAt) / DAY_MS) + 1;
-	const dayNumber = Math.min(EXPERIMENT_TOTAL_DAYS, Math.max(1, dayIndex));
 	const overlayAt = state.experimentStartAt ?? state.startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
-	const completeAt = state.startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+	const completeAt = state.experimentEndAt ?? state.startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+	const totalDays = Math.max(1, Math.round((completeAt - state.startAt) / DAY_MS));
+	const dayNumber = Math.min(totalDays, Math.max(1, dayIndex));
 
 	const phaseEl = document.getElementById('experiment-phase');
 	const summaryEl = document.getElementById('experiment-summary');
@@ -610,9 +612,9 @@ async function renderExperimentStatus() {
 		if (!hasStarted) {
 			summaryEl.textContent = `Scheduled start: ${formatDate(state.startAt)}.`;
 		} else if (phase === 'logging') {
-			summaryEl.textContent = `Day ${dayNumber} of ${EXPERIMENT_TOTAL_DAYS}. Logging only.`;
+			summaryEl.textContent = `Day ${dayNumber} of ${totalDays}. Logging only.`;
 		} else if (phase === 'overlay') {
-			summaryEl.textContent = `Day ${dayNumber} of ${EXPERIMENT_TOTAL_DAYS}. Overlay enabled.`;
+			summaryEl.textContent = `Day ${dayNumber} of ${totalDays}. Overlay enabled.`;
 		} else {
 			summaryEl.textContent = `Experiment complete. Overlay stays enabled.`;
 		}
@@ -800,6 +802,7 @@ function getExperimentState(): Promise<ExperimentState | null> {
 					startAt,
 					phase: raw.phase,
 					experimentStartAt: typeof raw.experimentStartAt === 'number' ? raw.experimentStartAt : undefined,
+					experimentEndAt: typeof raw.experimentEndAt === 'number' ? raw.experimentEndAt : undefined,
 				});
 			});
 		} catch (e) {
@@ -956,7 +959,8 @@ function formatMs(ms: number): string {
 function getExperimentPhase(state: ExperimentState, nowMs: number): ExperimentPhase {
 	if (!state?.startAt || !Number.isFinite(state.startAt)) return 'logging';
 	const elapsedMs = Math.max(0, nowMs - state.startAt);
-	if (elapsedMs >= EXPERIMENT_TOTAL_DAYS * DAY_MS) return 'completed';
+	const completeAt = state.experimentEndAt ?? state.startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+	if (nowMs >= completeAt) return 'completed';
 	const overlayStartMs = state.experimentStartAt
 		? Math.max(0, state.experimentStartAt - state.startAt)
 		: EXPERIMENT_OVERLAY_DAYS * DAY_MS;

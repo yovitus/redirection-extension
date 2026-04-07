@@ -5,6 +5,9 @@ import { getNextLocalMidnight } from '../shared/time';
 export const EXPERIMENT_ALARM_NAME = 'focular-experiment-alarm';
 const EXPERIMENT_STATE_KEY = 'experimentState';
 const EXPERIMENT_CONSENT_KEY = 'experimentConsentGiven';
+// Existing installs without a version marker get a one-time 3-day phase 1 extension.
+const EXPERIMENT_STATE_VERSION = 2;
+const EXISTING_INSTALL_PHASE_ONE_EXTENSION_MS = 3 * DAY_MS;
 
 type DelayTimerLabel = 'Instant' | '5' | '10';
 type DelayTimerOption = { label: DelayTimerLabel; delayMs: number };
@@ -21,8 +24,10 @@ type ExperimentState = {
 	startAt: number;
 	phase: ExperimentPhase;
 	experimentStartAt?: number;
+	experimentEndAt?: number;
 	overlayShown?: boolean;
 	completionShown?: boolean;
+	version?: number;
 };
 
 type ExperimentPopupMode = 'overlay' | 'complete';
@@ -58,7 +63,7 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 	async function refreshExperimentState(): Promise<ExperimentState> {
 		const state = await ensureExperimentState();
 		const nowMs = Date.now();
-		const nextPhase = computeExperimentPhase(state.startAt, nowMs, state.experimentStartAt);
+		const nextPhase = computeExperimentPhase(state.startAt, nowMs, state.experimentStartAt, state.experimentEndAt);
 
 		let changed = false;
 		let phaseChanged = false;
@@ -112,10 +117,16 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		return state;
 	}
 
-	function computeExperimentPhase(startAt: number, nowMs: number, experimentStartAt?: number): ExperimentPhase {
+	function computeExperimentPhase(
+		startAt: number,
+		nowMs: number,
+		experimentStartAt?: number,
+		experimentEndAt?: number,
+	): ExperimentPhase {
 		if (!Number.isFinite(startAt)) return 'logging';
+		const completeAt = experimentEndAt ?? startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+		if (nowMs >= completeAt) return 'completed';
 		const elapsedMs = Math.max(0, nowMs - startAt);
-		if (elapsedMs >= EXPERIMENT_TOTAL_DAYS * DAY_MS) return 'completed';
 		const overlayStartMs = experimentStartAt
 			? Math.max(0, experimentStartAt - startAt)
 			: EXPERIMENT_OVERLAY_DAYS * DAY_MS;
@@ -125,14 +136,22 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 
 	async function ensureExperimentState(): Promise<ExperimentState> {
 		const stored = await loadExperimentState();
-		if (stored) return stored;
+		if (stored) {
+			const migrated = migrateExistingInstallState(stored);
+			if (hasExperimentStateChanged(stored, migrated)) {
+				await saveExperimentState(migrated);
+			}
+			return migrated;
+		}
 		const startAt = getNextLocalMidnight(Date.now());
 		const initial: ExperimentState = {
 			startAt,
 			phase: 'logging',
 			experimentStartAt: startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS,
+			experimentEndAt: startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS,
 			overlayShown: false,
 			completionShown: false,
+			version: EXPERIMENT_STATE_VERSION,
 		};
 		await saveExperimentState(initial);
 		return initial;
@@ -150,8 +169,10 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 				startAt,
 				phase,
 				experimentStartAt: typeof raw.experimentStartAt === 'number' ? raw.experimentStartAt : undefined,
+				experimentEndAt: typeof raw.experimentEndAt === 'number' ? raw.experimentEndAt : undefined,
 				overlayShown: raw.overlayShown === true,
 				completionShown: raw.completionShown === true,
+				version: typeof raw.version === 'number' ? raw.version : undefined,
 			};
 		} catch (e) {
 			return null;
@@ -231,7 +252,7 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 			const startAt = state.startAt;
 			if (!Number.isFinite(startAt) || !options.chromeApi?.alarms) return;
 			const overlayAt = state.experimentStartAt ?? startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
-			const completeAt = startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+			const completeAt = state.experimentEndAt ?? startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
 			let nextAt: number | null = null;
 			if (nowMs < overlayAt) {
 				nextAt = overlayAt;
@@ -263,5 +284,39 @@ export function createExperimentManager(options: ExperimentManagerOptions) {
 		} catch (e) {
 			return false;
 		}
+	}
+
+	function migrateExistingInstallState(state: ExperimentState): ExperimentState {
+		const overlayAt = state.experimentStartAt ?? state.startAt + EXPERIMENT_OVERLAY_DAYS * DAY_MS;
+		const completeAt = state.experimentEndAt ?? state.startAt + EXPERIMENT_TOTAL_DAYS * DAY_MS;
+		const version = typeof state.version === 'number' ? state.version : 0;
+		const base: ExperimentState = {
+			...state,
+			experimentStartAt: overlayAt,
+			experimentEndAt: completeAt,
+		};
+		if (version >= EXPERIMENT_STATE_VERSION) {
+			return {
+				...base,
+				version,
+			};
+		}
+
+		const nextOverlayAt = overlayAt + EXISTING_INSTALL_PHASE_ONE_EXTENSION_MS;
+		const nextCompleteAt = completeAt + EXISTING_INSTALL_PHASE_ONE_EXTENSION_MS;
+		const nowMs = Date.now();
+
+		return {
+			...base,
+			experimentStartAt: nextOverlayAt,
+			experimentEndAt: nextCompleteAt,
+			overlayShown: nowMs < nextOverlayAt ? false : base.overlayShown,
+			completionShown: nowMs < nextCompleteAt ? false : base.completionShown,
+			version: EXPERIMENT_STATE_VERSION,
+		};
+	}
+
+	function hasExperimentStateChanged(previous: ExperimentState, next: ExperimentState): boolean {
+		return JSON.stringify(previous) !== JSON.stringify(next);
 	}
 }
